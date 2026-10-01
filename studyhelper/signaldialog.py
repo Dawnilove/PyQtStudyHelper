@@ -7,9 +7,10 @@ from . import codegen
 
 
 class SignalInsertDialog(QDialog):
-    def __init__(self, src, widget, sig, all_sigs, parent=None):
+    def __init__(self, src, widget, sig, all_sigs, parent=None, target_class=None):
         super().__init__(parent)
         self.src, self.widget, self.sig, self.all_sigs = src, widget, sig, all_sigs
+        self.target_class = target_class
         self.plan = None
         signal, args = codegen.parse_signature(sig)
         self.setWindowTitle("시그널 연결 코드 넣기")
@@ -53,7 +54,8 @@ class SignalInsertDialog(QDialog):
             self.preview.clear()
             return
         try:
-            self.plan = codegen.plan_insert(self.src, self.widget, self.sig, self.all_sigs, name)
+            self.plan = codegen.plan_insert(self.src, self.widget, self.sig, self.all_sigs, name,
+                                            self.target_class)
         except ValueError as e:
             self.msg.setText(f"<span style='color:#c0392b'>{e}</span>")
             ok_btn.setEnabled(False)

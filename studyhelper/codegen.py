@@ -93,7 +93,7 @@ def _form_class(lines: list[str]) -> tuple[int, int] | None:
     return cls, end
 
 
-def _layout_ast(src: str, lines: list[str]):
+def _layout_ast(src: str, lines: list[str], target_class: str | None = None):
     """(class end, method indent, anchor line, statement indent) using the parser.
 
     The anchor is the END line of the last top-level statement in __init__ that calls .connect(
@@ -109,8 +109,9 @@ def _layout_ast(src: str, lines: list[str]):
     def init_of(c):
         return next((f for f in c.body if isinstance(f, ast.FunctionDef) and f.name == "__init__"), None)
 
-    cls = next((c for c in classes if init_of(c) and "setupUi(" in (ast.get_source_segment(src, init_of(c)) or "")),
-               next((c for c in classes if init_of(c)), None))
+    cls = next((c for c in classes if c.name == target_class and init_of(c)), None) or \
+        next((c for c in classes if init_of(c) and "setupUi(" in (ast.get_source_segment(src, init_of(c)) or "")),
+             next((c for c in classes if init_of(c)), None))
     if cls is None:
         return None
     init = init_of(cls)
@@ -152,7 +153,8 @@ def _layout_lines(lines: list[str]):
     return cls_end, body_indent, anchor, stmt_indent
 
 
-def plan_insert(src: str, widget: str, sig: str, all_sigs: list[str], slot: str) -> Plan:
+def plan_insert(src: str, widget: str, sig: str, all_sigs: list[str], slot: str,
+                target_class: str | None = None) -> Plan:
     lines = src.split("\n")
     signal, args = parse_signature(sig)
     idx = overload_index(sig, all_sigs)
@@ -164,7 +166,7 @@ def plan_insert(src: str, widget: str, sig: str, all_sigs: list[str], slot: str)
         if rx.search(l) and not l.lstrip().startswith("#"):
             return Plan("", -1, "", -1, existing=i, note="이미 연결돼 있어요")
 
-    layout = _layout_ast(src, lines) or _layout_lines(lines)
+    layout = _layout_ast(src, lines, target_class) or _layout_lines(lines)
     cls_end, body_indent, anchor, stmt_indent = layout
     connect = f"{stmt_indent}self.{widget}.{signal}{idx}.connect(self.{slot})"
 
