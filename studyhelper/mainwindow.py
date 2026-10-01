@@ -9,7 +9,7 @@ from PyQt5 import uic
 from PyQt5.QtCore import (QFileSystemWatcher, QProcess, QProcessEnvironment, QSettings, Qt,
                           QTimer)
 from PyQt5.QtCore import QUrl
-from PyQt5.QtGui import QColor, QDesktopServices, QFont, QKeySequence
+from PyQt5.QtGui import QColor, QDesktopServices, QFont, QKeySequence, QTextCursor
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import (QAction, QComboBox, QFileDialog, QLabel, QListWidget, QListWidgetItem,
                              QMainWindow, QMessageBox, QPlainTextEdit, QSizePolicy, QSplitter, QStyle,
@@ -17,8 +17,10 @@ from PyQt5.QtWidgets import (QAction, QComboBox, QFileDialog, QLabel, QListWidge
                              QStackedWidget, QPushButton, QHBoxLayout, QTextBrowser, QMenu)
 
 from . import ai, checker, codeview, errors, notes
+from .challenge import ChallengeWindow
+from .renamedialog import RenameDialog
 from .signaldialog import SignalInsertDialog
-from .ui_model import set_property
+from .ui_model import rename_object, set_property
 from .explainpanel import AiPanel, AiSettingsDialog, LineExplainView
 from .editor import CodeEditor
 from .locate import import_mismatch, main_py_in, py_for_ui, read_text, ui_candidates
@@ -155,6 +157,11 @@ class MainWindow(QMainWindow):
         self.a_legend.setCheckable(True)
         self.a_help = A("사용법", self.show_help, "F1")
         self.a_home = A("시작 화면", lambda: self.stack.setCurrentIndex(0))
+        self.a_challenge = A("화면 따라 만들기 도전…", self.start_challenge, "Ctrl+T", None,
+                             "목표 화면(.ui)을 보고 Designer로 똑같이 만들어 보기 — 저장할 때마다 자동 채점")
+        self.challenge = None
+        self.a_rename = A("objectName 바꾸기…", self.rename_selected, "F2", None,
+                          "선택한 위젯의 이름을 .ui와 Main.py에서 한꺼번에 바꾸기 (F2)")
 
         mb = self.menuBar()
         m = mb.addMenu("파일(&F)")
@@ -167,6 +174,10 @@ class MainWindow(QMainWindow):
         m = mb.addMenu("실행(&R)")
         for a in (self.a_run, self.a_stop, self.a_designer):
             m.addAction(a)
+        m = mb.addMenu("위젯(&W)")
+        m.addAction(self.a_rename)
+        m = mb.addMenu("도전(&C)")
+        m.addAction(self.a_challenge)
         m = mb.addMenu("AI(&A)")
         for a in (self.a_explain, self.a_review):
             m.addAction(a)
@@ -201,6 +212,7 @@ class MainWindow(QMainWindow):
         tb.addAction(self.a_stop)
         tb.addSeparator()
         tb.addAction(self.a_explain)
+        tb.addAction(self.a_challenge)
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         tb.addWidget(spacer)
@@ -212,6 +224,8 @@ class MainWindow(QMainWindow):
         self.tree.setHeaderLabels(["objectName", "클래스"])
         self.tree.setColumnWidth(0, 180)
         self.tree.itemClicked.connect(lambda it, _: self.select(it.data(0, Qt.UserRole), "tree"))
+        self.tree.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.tree.customContextMenuRequested.connect(self._tree_menu)
 
         self.editor = CodeEditor()
         self.editor.nameHovered.connect(lambda n: self.select(n, "hover"))
@@ -229,6 +243,7 @@ class MainWindow(QMainWindow):
         self.panel.signalInsertRequested.connect(self.insert_signal)
         self.panel.propertyEdited.connect(self.edit_property)
         self.panel.noteRequested.connect(self.open_note)
+        self.panel.renameRequested.connect(self.rename_selected)
 
         self.line_view = LineExplainView()
         self.line_view.anchorClicked.connect(lambda url: self.open_note(url.toString()))
@@ -388,7 +403,7 @@ class MainWindow(QMainWindow):
 
     def _on_page_changed(self, idx):
         on = idx == 1
-        for a in (self.a_save, self.a_run, self.a_designer, self.a_explain, self.a_review,
+        for a in (self.a_save, self.a_run, self.a_designer, self.a_explain, self.a_review, self.a_rename,
                   self.a_zoom_in, self.a_zoom_out, self.a_zoom_reset):
             a.setEnabled(on)
         self.ui_combo.setEnabled(on)
@@ -422,6 +437,9 @@ class MainWindow(QMainWindow):
             "<tr><td><b>F5 / Shift+F5</b></td><td>실행 / 중지</td></tr>"
             "<tr><td><b>Ctrl+D</b></td><td>.ui를 Qt Designer로 열기 (저장하면 자동 반영)</td></tr>"
             "<tr><td><b>Ctrl+E</b></td><td>선택한 줄을 AI에게 설명 듣기</td></tr>"
+            "<tr><td><b>F2</b></td><td>선택한 위젯의 objectName 바꾸기 (.ui와 Main.py 함께)</td></tr>"
+            "<tr><td><b>Ctrl+T</b></td><td>화면 따라 만들기 도전</td></tr>"
+            "<tr><td><b>시그널 탭</b></td><td>시그널 더블클릭 → connect 줄과 함수 틀 넣기</td></tr>"
             "<tr><td><b>Ctrl+휠, Ctrl+= / Ctrl+-</b></td><td>코드 글자 크기</td></tr>"
             "</table><br>"
             "<b>색 표시</b><ul>"
@@ -552,6 +570,75 @@ class MainWindow(QMainWindow):
             self.select(self.sel, "reload")
         self._on_cursor_moved()
 
+    # ---------------------------------------------------------- challenge
+    def start_challenge(self):
+        start = str(self.ui_path.parent) if self.ui_path else self.settings.value("lastDir", "")
+        path, _ = QFileDialog.getOpenFileName(
+            self, "도전할 목표 화면 고르기 (.ui) — 예제나 정답(_sol) .ui", start, "Qt Designer (*.ui)")
+        if not path:
+            return
+        try:
+            self.challenge = ChallengeWindow(Path(path), self)
+        except Exception as e:
+            QMessageBox.warning(self, "도전", f"이 .ui를 읽지 못했어요: {e}")
+            return
+        self.challenge.newUiRequested.connect(self._challenge_ui)
+        self.challenge.show()
+        if self.ui_path:
+            self.challenge.update_mine(self.ui_path)
+
+    def _challenge_ui(self, path):
+        p = Path(path).resolve()
+        if self.ui_combo.findData(str(p)) < 0:
+            self.ui_combo.addItem(p.name, str(p))
+        self.ui_combo.setCurrentIndex(self.ui_combo.findData(str(p)))
+        self.stack.setCurrentIndex(1)
+        self.load_ui(p)
+        self._watch()
+        self.open_designer()
+        self._status(f"{p.name} 를 Designer로 열었어요. 저장할 때마다 도전 창이 채점해요.", 10000)
+
+    def _tree_menu(self, pos):
+        it = self.tree.itemAt(pos)
+        name = it.data(0, Qt.UserRole) if it else None
+        if not name:
+            return
+        self.select(name, "tree")
+        menu = QMenu(self.tree)
+        menu.addAction(self.a_rename)
+        menu.exec_(self.tree.viewport().mapToGlobal(pos))
+
+    def rename_selected(self):
+        if not (self.model and self.ui_path and self.sel in self.model.nodes):
+            self._status("먼저 미리보기·위젯 트리에서 위젯을 선택해 주세요.")
+            return
+        node = self.model.nodes[self.sel]
+        dlg = RenameDialog(node.name, node.cls, self.model.nodes.keys(), self.editor.toPlainText(),
+                           node is self.model.top, self)
+        if not dlg.exec_():
+            return
+        old, new = node.name, dlg.new
+        try:
+            err, n = rename_object(self.ui_path, old, new)
+        except Exception as e:
+            err, n = f"{type(e).__name__}: {e}", 0
+        if err:
+            QMessageBox.warning(self, "이름 바꾸기", err)
+            return
+        if dlg.changes:                                    # one undo step in the editor
+            sb = self.editor.verticalScrollBar().value()
+            cur = QTextCursor(self.editor.document())
+            cur.beginEditBlock()
+            cur.select(QTextCursor.Document)
+            cur.insertText(dlg.new_src)
+            cur.endEditBlock()
+            self.editor.verticalScrollBar().setValue(sb)
+        if dlg.save_py.isChecked() and self.editor.document().isModified():
+            self.save_py()
+        self.sel = new
+        self.load_ui(self.ui_path)
+        self._status(f"{old} → {new}: .ui {n}곳, Main.py {len(dlg.changes)}줄 바꿨어요.", 10000)
+
     def open_note(self, url):
         if url == "connect":
             self.choose_vault()
@@ -675,6 +762,8 @@ class MainWindow(QMainWindow):
             self.preview.select(None)
             self.editor.mark(None)
         self.run_check()
+        if self.challenge is not None and self.challenge.isVisible():
+            self.challenge.update_mine(self.ui_path)
 
     def _fill_tree(self):
         self.tree.clear()

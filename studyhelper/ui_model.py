@@ -139,10 +139,7 @@ def set_property(path, obj_name: str, prop: str, value: str) -> Optional[str]:
     Keeps the XML declaration, comments and the file's line endings.
     """
     path = Path(path)
-    raw = path.read_bytes()
-    crlf = b"\r\n" in raw
-    parser = ET.XMLParser(target=ET.TreeBuilder(insert_comments=True))
-    root = ET.fromstring(raw, parser=parser)
+    root, crlf = _read(path)
     elem = next((e for e in root.iter() if e.tag in ("widget", "layout", "action")
                  and e.get("name") == obj_name), None)
     if elem is None:
@@ -166,9 +163,60 @@ def set_property(path, obj_name: str, prop: str, value: str) -> Optional[str]:
             return "true 또는 false 만 넣을 수 있어요."
         v = value.strip().lower()
     elem.find(f"property[@name='{prop}']")[0].text = v
-    body = ET.tostring(root, encoding="unicode").replace(" />", "/>")   # Designer writes <x/>
+    _write(path, root, crlf)
+    return None
+
+
+def _read(path: Path):
+    raw = path.read_bytes()
+    parser = ET.XMLParser(target=ET.TreeBuilder(insert_comments=True))
+    return ET.fromstring(raw, parser=parser), b"\r\n" in raw
+
+
+def _write(path: Path, root, crlf: bool):
+    """Keeps the XML declaration, comments, Designer's <x/> style and the line endings."""
+    body = ET.tostring(root, encoding="unicode").replace(" />", "/>")
     text = '<?xml version="1.0" encoding="UTF-8"?>\n' + body + "\n"
     if crlf:
         text = text.replace("\r\n", "\n").replace("\n", "\r\n")
     path.write_bytes(text.encode("utf-8"))
-    return None
+
+
+NAMED_TAGS = ("widget", "layout", "action", "buttongroup", "actiongroup")
+REF_TEXT_TAGS = ("sender", "receiver", "tabstop", "zorder")
+
+
+def rename_object(path, old: str, new: str) -> tuple[Optional[str], int]:
+    """Rename an objectName and every reference to it in the .ui. Returns (error, changes)."""
+    path = Path(path)
+    root, crlf = _read(path)
+    names = {e.get("name") for e in root.iter() if e.tag in NAMED_TAGS}
+    if old not in names:
+        return f"{old} 를 .ui에서 찾지 못했어요.", 0
+    if new in names:
+        return f"'{new}' 는 이미 다른 위젯 이름이에요.", 0
+    n = 0
+    for e in root.iter():
+        if e.tag in NAMED_TAGS and e.get("name") == old:
+            e.set("name", new)
+            n += 1
+        elif e.tag == "addaction" and e.get("name") == old:            # menus/toolbars using an action
+            e.set("name", new)
+            n += 1
+        elif e.tag in REF_TEXT_TAGS and (e.text or "").strip() == old:  # signal/slot editor, tab order
+            e.text = new
+            n += 1
+        elif e.tag == "cstring" and e.text == old:                       # e.g. QLabel buddy
+            e.text = new
+            n += 1
+        elif e.tag == "attribute" and e.get("name") == "buttonGroup":    # a button's group membership
+            s = e.find("string")
+            if s is not None and s.text == old:
+                s.text = new
+                n += 1
+    cls = root.find("class")          # <class>MainWindow</class>: pyuic names Ui_<this>
+    if cls is not None and cls.text == old:
+        cls.text = new
+        n += 1
+    _write(path, root, crlf)
+    return None, n

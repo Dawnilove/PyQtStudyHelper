@@ -32,6 +32,7 @@ class PropertyPanel(QWidget):
     signalInsertRequested = pyqtSignal(str, str, list)   # widget, signature, all signatures
     propertyEdited = pyqtSignal(str, str, str)          # object name, property, new value
     noteRequested = pyqtSignal(str)                     # obsidian:// url
+    renameRequested = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -42,6 +43,11 @@ class PropertyPanel(QWidget):
         self.header.setWordWrap(True)
         self.header.setMargin(6)
         lay.addWidget(self.header)
+        self.b_rename = QPushButton("objectName 바꾸기 (F2)")
+        self.b_rename.setToolTip(".ui와 Main.py의 이름을 한꺼번에 바꿔요")
+        self.b_rename.clicked.connect(self.renameRequested)
+        self.b_rename.setVisible(False)
+        lay.addWidget(self.b_rename)
 
         self.tabs = QTabWidget()
         lay.addWidget(self.tabs, 1)
@@ -108,6 +114,8 @@ class PropertyPanel(QWidget):
         self.signals.clear()
         self.code.clear()
         self.xml.clear()
+        if hasattr(self, "b_rename"):
+            self.b_rename.setVisible(False)
         if hasattr(self, "notes"):
             self.notes.clear()
             self._node = None
@@ -136,6 +144,7 @@ class PropertyPanel(QWidget):
             f"<span style='color:#555'>위치: {escape(node.position_text())}</span>")
 
         self._node = node
+        self.b_rename.setVisible(True)
         props = node.props
         self._filling = True
         self.table.setRowCount(len(props))
