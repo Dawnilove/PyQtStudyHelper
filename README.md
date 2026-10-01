@@ -6,7 +6,7 @@ Qt Designer로 만든 `.ui`와 직접 짜는 `Main.py`를 **나란히 놓고 연
 
 1. [Python 3.10 이상](https://www.python.org/downloads/) 설치 — 설치 화면에서 **Add python.exe to PATH** 체크
 2. 이 폴더의 **`install.bat`** 더블클릭 → 필요한 패키지 설치 + 바탕화면 아이콘 생성
-3. (선택) AI 해설: 앱의 AI 메뉴 → 모델·키 설정. **무료**로 쓰려면 Gemini Flash(무료 티어 키) 또는 [Ollama](https://ollama.com/download)(내 PC, 완전 무료)
+3. AI 해설은 **설치 직후 바로 무료로** 쓸 수 있음 (기본값: 웹 AI 방식, 키 필요 없음). API 키가 있으면 AI 메뉴 → AI 모델·키 설정에서 바꾸면 답이 앱 안에 바로 나옴
 4. (선택) 내 노트: 보기 → 내 노트 폴더 연결 (Obsidian 볼트나 .md 노트 폴더)
 
 ## 다른 사람에게 주기
@@ -51,6 +51,7 @@ API 키·노트 폴더는 각자 앱에서 설정 (zip에는 들어 있지 않�
 - **AI 해설 설정**: 메뉴 AI → AI 모델·키 설정. 모델을 고르고 그 회사 키를 붙여넣고 [연결 테스트] → [저장]. 키는 회사별로 Windows 자격 증명 관리자에 저장되고 파일·저장소에는 남지 않음 (환경변수 `GEMINI_API_KEY` / `OPENAI_API_KEY` / `ANTHROPIC_API_KEY`가 있으면 우선).
   | 회사 | 모델 | 비용 |
   |---|---|---|
+  | 웹 AI (기본) | ChatGPT 웹 / Gemini 웹 / Claude 웹 | **무료, 키 필요 없음** — 질문을 복사해 웹 창을 열어 주고, 웹에서 답의 복사 버튼을 누르면 답이 앱으로 들어옴 |
   | Google | Gemini 3.8 Flash (기본), 3.5 Flash-Lite / 3.1 Pro | Flash 계열 **무료 티어** (사용량 제한, 입력이 Google 제품 개선에 쓰일 수 있음) / Pro 유료 |
   | 내 PC | Ollama 모델 (예: `qwen3:8b`) | **완전 무료**, 인터넷 불필요, PC 성능 필요 |
   | Anthropic | Claude Opus 5.5 / Sonnet 5.5 / Haiku 4.5 | 유료 |

@@ -132,7 +132,8 @@ class AiSettingsDialog(QDialog):
         local = ai.ollama_models()
         groups["ollama"] = [(f"ollama:{n}", ai.label_of(f"ollama:{n}")) for n in local] or \
                            [(f"ollama:{ai.OLLAMA_SUGGEST}", f"{ai.OLLAMA_SUGGEST} — 내 PC · 완전 무료 (Ollama 설치 필요)")]
-        for prov in ("gemini", "claude", "openai", "ollama"):
+        groups["web"] = [(mid, label) for mid, label, _ in ai.WEB_TARGETS]
+        for prov in ("web", "gemini", "claude", "openai", "ollama"):
             self.model.addItem(f"── {ai.PROVIDERS[prov]['name']} ──")
             self.model.model().item(self.model.count() - 1).setEnabled(False)
             for mid, label in groups.get(prov, []):
@@ -158,6 +159,9 @@ class AiSettingsDialog(QDialog):
         p = ai.PROVIDERS[prov]
         free = next((f for mid, _, _, f in ai.MODELS if mid == model), prov == "ollama")
         notes_ = {
+            "web": ("<b>무료 · 키 필요 없음.</b> Ctrl+E를 누르면 질문(코드 포함)이 <b>복사</b>되고 웹 AI 창이 열려요. "
+                    "그 창에 <b>Ctrl+V → Enter</b> 하면 돼요. 무료 계정 로그인이 필요할 수 있어요.<br>"
+                    "답은 도우미 안이 아니라 웹 창에 나와요. 내 코드가 그 사이트로 보내진다는 점은 알아 두세요."),
             "gemini": ("Google AI Studio 키로 <b>무료 티어</b>를 쓸 수 있어요 (분당·하루 사용량 제한). "
                        "무료 티어에서는 입력한 내용이 Google 제품 개선에 쓰일 수 있어요."
                        if free else "이 모델은 유료예요 (Google 결제 설정 필요)."),
@@ -169,10 +173,12 @@ class AiSettingsDialog(QDialog):
                        "PC 성능에 따라 느릴 수 있고, 답의 품질은 클라우드 모델보다 낮을 수 있어요."),
         }
         self.free_note.setText(f"<span style='color:#555'>{notes_[prov]}</span>")
-        is_local = prov == "ollama"
+        is_local = prov in ("ollama", "web")
         self.key_row.setVisible(not is_local)
         self.delete_btn.setVisible(not is_local)
-        self.key_title.setText("<b>2. 연결 확인</b>" if is_local else f"<b>2. {p['name']} API 키</b>")
+        self.test_btn.setVisible(prov != "web")
+        self.key_title.setText("" if prov == "web" else
+                               "<b>2. 연결 확인</b>" if is_local else f"<b>2. {p['name']} API 키</b>")
         self.key.setPlaceholderText(p["hint"])
         self.key.setText(self._keys.get(prov, ai.get_key(prov) if not is_local else ""))
         self.key_help.setText("" if is_local else
@@ -186,7 +192,7 @@ class AiSettingsDialog(QDialog):
 
     def _test(self):
         model = self.current_model()
-        key = self.key.text().strip() if self._prov != "ollama" else "local"
+        key = self.key.text().strip() if self._prov not in ("ollama", "web") else "local"
         if not key:
             self.result.setText("<span style='color:#c0392b'>키를 먼저 넣어 주세요.</span>")
             return
@@ -208,7 +214,7 @@ class AiSettingsDialog(QDialog):
             return
         self._keys[self._prov] = self.key.text()
         for prov, k in self._keys.items():
-            if prov != "ollama" and k.strip() != ai.get_key(prov):
+            if prov not in ("ollama", "web") and k.strip() != ai.get_key(prov):
                 ai.set_key(prov, k)
         ai.set_model(model)
         self.accept()
@@ -247,6 +253,16 @@ class AiPanel(QWidget):
         self.b_model.clicked.connect(self.settingsRequested)
         for b in (self.b_explain, self.b_review, self.b_stop):
             top.addWidget(b)
+        self.b_recopy = QPushButton("질문 다시 복사")
+        self.b_recopy.setToolTip("웹 AI에 붙여넣을 질문을 클립보드에 다시 복사해요")
+        self.b_recopy.clicked.connect(self.recopy)
+        self.b_recopy.setVisible(False)
+        top.addWidget(self.b_recopy)
+        self.b_unwatch = QPushButton("답 가져오기 끝")
+        self.b_unwatch.setToolTip("웹 AI에서 복사한 답을 더 이상 가져오지 않아요 (다른 걸 복사해도 안 들어오게)")
+        self.b_unwatch.clicked.connect(lambda: self._set_watching(False))
+        self.b_unwatch.setVisible(False)
+        top.addWidget(self.b_unwatch)
         top.addStretch(1)
         top.addWidget(self.b_model)
         lay.addLayout(top)
@@ -271,6 +287,14 @@ class AiPanel(QWidget):
         self.current = ""
         self.worker = None
         self._render_timer = QTimer(self, singleShot=True, interval=80, timeout=self._render)
+        # web AI answers come back through the clipboard while we're "watching"
+        self._watching = False
+        self._own_copies = set()
+        self._answers = 0
+        self._web_name = ""
+        self._watch_timer = QTimer(self, singleShot=True, interval=20 * 60 * 1000,
+                                   timeout=lambda: self._set_watching(False))
+        QApplication.clipboard().dataChanged.connect(self._on_clipboard)
         self.show_welcome()
 
     @property
@@ -280,12 +304,23 @@ class AiPanel(QWidget):
     # --- display -----------------------------------------------------------
     def show_welcome(self):
         model = ai.get_model()
-        self.b_model.setText(f"모델: {model.replace('ollama:', '')}  ⚙")
+        self.b_model.setText(f"AI: {ai.short_name(model)} · 설정")
+        if ai.provider_of(model) == "web":
+            self.question.setPlaceholderText("이어서 물어볼 말을 쓰고 Enter → 복사돼요 (웹 창에 붙여넣기)")
+            self.view.setHtml(
+                f"<h3>AI 해설 — {escape(ai.short_name(model))} (무료)</h3>"
+                "<ol><li>Main.py에서 궁금한 줄을 선택하고 <b>Ctrl+E</b> (또는 <b>파일 전체 리뷰</b>).</li>"
+                "<li>질문이 <b>자동으로 복사</b>되고 웹 AI 창이 열려요.</li>"
+                "<li>그 창의 입력칸에 <b>Ctrl+V → Enter</b>.</li>"
+                "<li>답 아래의 <b>복사 버튼</b>을 누르면 <b>답이 여기로 들어와요.</b></li></ol>"
+                "<p style='color:#888'>API 키가 있으면 오른쪽 위 <b>AI · 설정</b>에서 바꾸면 답이 여기 바로 나와요.</p>")
+            return
+        self.question.setPlaceholderText("이어서 질문하기 (예: lambda는 왜 썼어?)  Enter")
         if not ai.ready(model):
             self.view.setHtml(
                 "<h3>AI 해설 시작하기</h3><p>내 코드를 AI가 설명하고 리뷰해 줘요.</p>"
-                "<ol><li>오른쪽 위 <b>모델 ⚙</b>을 눌러 AI를 고르고 키를 넣어요 (한 번만).<br>"
-                "<span style='color:#2b8a3e'>무료: Gemini Flash(무료 티어) 또는 내 PC의 Ollama</span></li>"
+                "<ol><li>오른쪽 위 <b>AI · 설정</b>을 눌러 AI를 고르고 키를 넣어요 (한 번만).<br>"
+                "<span style='color:#2b8a3e'>무료: 웹 AI(키 필요 없음), Gemini Flash(무료 티어), 내 PC의 Ollama</span></li>"
                 "<li>Main.py에서 궁금한 줄을 선택하고 <b>Ctrl+E</b>.</li>"
                 "<li>답을 본 뒤 아래 칸에 이어서 질문할 수 있어요.</li></ol>"
                 "<p style='color:#888'>키가 없어도 <b>줄 해설</b> 탭은 그대로 쓸 수 있어요.</p>")
@@ -303,6 +338,11 @@ class AiPanel(QWidget):
     # --- requests ------------------------------------------------------------
     def start(self, context: str, task: str, title: str):
         """New conversation: code context + task, on the currently chosen model."""
+        model = ai.get_model()
+        if ai.provider_of(model) == "web":
+            self._send_to_web(model, ai.web_prompt(context, task), title)
+            return
+        self._set_watching(False)
         if not ai.ready():
             self.settingsRequested.emit()
             if not ai.ready():
@@ -313,9 +353,78 @@ class AiPanel(QWidget):
         self.transcript = f"*{escape(ai.label_of(self.conv_model))}*\n\n"
         self._send(f"{context}\n\n{task}", f"## 🧑 {title}\n\n")
 
+    # --- web AI: copy the question out, bring the answer back via the clipboard ------------
+    def _copy_own(self, text):
+        """Copy something ourselves (so the clipboard watcher doesn't import it as an answer)."""
+        self._own_copies.add(text)
+        QApplication.clipboard().setText(text)
+
+    def _send_to_web(self, model, prompt, title):
+        self.stop()
+        self.history = []
+        self.conv_model = model
+        self._copy_own(prompt)
+        url = ai.web_url(model)
+        QDesktopServices.openUrl(QUrl(url))
+        name = ai.short_name(model)
+        self._web_name = name
+        self._answers = 0
+        self.transcript = (f"## 🧑 {title}\n\n"
+                           f"*{name}에 보낼 질문을 복사했어요 ({len(prompt):,}자: 해설 요청 + 코드 + .ui 위젯 목록).*\n\n")
+        self.current = ""
+        self.view.setHtml(
+            f"<h3>📋 {escape(title)} — 질문을 복사했어요</h3>"
+            f"<p><b>{escape(name)}</b> 창이 열렸어요 (안 열리면 <a href='{url}'>여기</a>).</p>"
+            "<ol><li>웹 AI의 입력칸을 클릭하고 <b>Ctrl+V</b> → <b>Enter</b></li>"
+            "<li>답이 나오면 답 아래의 <b>복사 버튼</b>을 누르세요 (또는 답을 드래그해서 Ctrl+C)</li>"
+            "<li><b>→ 답이 자동으로 여기로 들어와요.</b></li></ol>"
+            "<p style='color:#888'>이어서 물어볼 땐 아래 칸에 쓰고 Enter → 질문이 복사되니 웹 창에 붙여넣으면 돼요. "
+            "복사가 풀렸으면 위의 <b>질문 다시 복사</b>.</p>")
+        self._last_web = (model, prompt, title)
+        self._set_watching(True)
+
+    def _set_watching(self, on):
+        self._watching = on
+        self.b_recopy.setVisible(on)
+        self.b_unwatch.setVisible(on)
+        if on:
+            self._watch_timer.start()          # stop listening after a while on its own
+
+    def _on_clipboard(self):
+        if not self._watching:
+            return
+        text = QApplication.clipboard().text()
+        if not text.strip() or text in self._own_copies or len(text.strip()) < 15:
+            return
+        self._own_copies.add(text)             # don't import the same text twice
+        self._answers += 1
+        head = f"**🤖 {self._web_name} 답 (가져옴)**" if self._answers == 1 else \
+            f"\n\n---\n\n**🤖 {self._web_name} 답 {self._answers} (가져옴)**"
+        self.transcript += f"{head}\n\n{text.strip()}\n"
+        self._render()
+        self._watch_timer.start()              # keep listening while answers keep coming
+
+    def recopy(self):
+        if getattr(self, "_last_web", None):
+            self._copy_own(self._last_web[1])
+            self.b_recopy.setText("복사했어요 ✓")
+            QTimer.singleShot(1500, lambda: self.b_recopy.setText("질문 다시 복사"))
+
     def _ask(self):
         q = self.question.text().strip()
         if not q or self.busy():
+            return
+        if ai.provider_of(self.conv_model or ai.get_model()) == "web":
+            if not getattr(self, "_last_web", None):
+                self.view.setHtml("<p style='color:#c0392b'>먼저 <b>선택 부분 설명</b>이나 "
+                                  "<b>파일 전체 리뷰</b>를 시작해 주세요.</p>")
+                return
+            self.question.clear()
+            self._copy_own(q)
+            self.transcript += (f"\n\n---\n\n## 🧑 {q}\n\n"
+                                "*질문을 복사했어요 → 웹 창에 Ctrl+V → Enter. 답의 복사 버튼을 누르면 여기로 들어와요.*\n\n")
+            self._render()
+            self._set_watching(True)
             return
         if not self.history:
             self.view.setHtml("<p style='color:#c0392b'>먼저 <b>선택 부분 설명</b>이나 "

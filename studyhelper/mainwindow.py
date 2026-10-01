@@ -507,7 +507,7 @@ class MainWindow(QMainWindow):
             if not self.ai_panel.history:
                 self.ai_panel.show_welcome()
             else:
-                self.ai_panel.b_model.setText(f"모델: {ai.get_model().replace('ollama:', '')}  ⚙")
+                self.ai_panel.b_model.setText(f"AI: {ai.short_name(ai.get_model())} · 설정")
 
     # ------------------------------------------------- signal helper / .ui edit
     def insert_signal(self, widget, sig, all_sigs):
@@ -649,7 +649,7 @@ class MainWindow(QMainWindow):
 
     def _update_ai_status(self):
         m = ai.get_model()
-        self.ai_status.setText(f"AI: {m.replace('ollama:', '내 PC ')}" if ai.ready(m)
+        self.ai_status.setText(f"AI: {ai.short_name(m)}" if ai.ready(m)
                                else "AI: 설정 필요 (AI 메뉴 → 모델·키 설정)")
 
     def _update_title(self):
