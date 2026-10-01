@@ -13,7 +13,9 @@ Qt Designer로 만든 `.ui`와 직접 짜는 `Main.py`를 **나란히 놓고 연
 | 실시간 미리보기 | `uic.loadUi()`로 만든 실제 위젯. 클릭하면 그 위젯이 선택됨 (버튼 동작은 막힘) |
 | 위젯 트리 | `.ui` 안의 위젯·레이아웃 계층. 레이아웃은 회색 기울임 |
 | Main.py | 편집 가능 (Ctrl+S 저장). `.ui`에 있는 `self.이름`은 파랗게 표시, 마우스를 올리면 선택 |
-| 속성 | 클래스·위치 / 속성 표 / Main.py에서 쓰는 곳 / 시그널 / 코드로 보기 / `.ui 원본` |
+| 선택한 위젯 | 클래스·위치 / 속성 표 / Main.py에서 쓰는 곳 / 시그널 / 코드로 보기 / `.ui 원본` |
+| 해설 · 줄 해설 | 클릭한 줄이 **무엇을 하는지 / 왜 이렇게 썼는지 / 주의할 점** (오프라인, 실습에 자주 나오는 구문 위주) + 이 줄이 어느 함수 안에 있고 무엇이 실행시키는지 |
+| 해설 · AI 해설 | 선택한 줄 설명(Ctrl+E), 파일 전체 리뷰, 이어서 질문하기 (Claude API, 내 API 키 필요) |
 | 실행 결과 | ▶ 실행(F5) 출력과 에러, 에러 해설. `File "...", line N` 줄을 클릭하면 이동 |
 | 검사 | 이름 검사 결과 목록 (클릭하면 이동) |
 
@@ -24,14 +26,17 @@ Qt Designer로 만든 `.ui`와 직접 짜는 `Main.py`를 **나란히 놓고 연
 - **실행 안전장치**: ▶ 실행 시 Main.py가 `gui`를 import하는데 `gui.py`가 없거나 `gui.ui`보다 오래됐으면 먼저 다시 만들어 줌.
 - **이름 검사기** (입력할 때마다): `.ui`에 없는 `self.이름`은 빨간 물결 밑줄 + 비슷한 이름 제안, 없는 슬롯 함수는 주황 밑줄, 문법 오류, pyuic 변환 파일과 import 모듈 불일치 경고. Main.py에서 안 쓰는 위젯은 트리에서 흐리게.
 - **에러 해설**: 실행이 에러로 끝나면 AttributeError·ImportError·NameError·슬롯 인자 개수·타입 오류 등을 쉬운 말로 풀고, 에러 난 줄로 이동해 빨갛게 표시.
-- **Designer에서 열기**: 현재 `.ui`를 Qt Designer로 엶 (`PyQt5Designer` 패키지의 designer.exe).
+- **Designer에서 열기** (Ctrl+D): 현재 `.ui`를 Qt Designer로 엶 (`PyQt5Designer` 패키지의 designer.exe).
+- **AI 해설 설정**: 메뉴 AI → API 키·모델 설정. 키를 붙여넣고 [연결 테스트] → [저장]. 키는 Windows 자격 증명 관리자에 저장되고 파일·저장소에는 남지 않음. 환경변수 `ANTHROPIC_API_KEY`가 있으면 그걸 우선 사용. 모델은 Opus 5.5(기본) / Sonnet 5.5 / Haiku 4.5 중 선택.
+- **편의 기능**: 시작 화면과 최근 파일, 메뉴·단축키(F1 사용법), Ctrl+휠로 코드 글자 크기, 보기 → 화면 배치 초기화, 현재 줄 강조.
 
 ## 단계 계획
 
 1. ✅ 미리보기, 속성 패널(코드로 보기), Main.py 연동, `.ui` 자동 감지, 실행
 2. ✅ 이름 검사기, 에러 해설과 줄 이동, 바로 실행 아이콘
-3. 시그널 도우미(connect + 슬롯 틀 삽입), text 편집 → `.ui` 저장, Obsidian 노트 연결
-4. 도전 모드, objectName 이름 바꾸기
+3. ✅ 줄 해설(오프라인) + AI 해설·코드 리뷰, 사용 편의 개선
+4. 시그널 도우미(connect + 슬롯 틀 삽입), text 편집 → `.ui` 저장, Obsidian 노트 연결
+5. 도전 모드, objectName 이름 바꾸기
 
 ## 구조
 
@@ -48,4 +53,7 @@ studyhelper/
   codeview.py              pyuic 생성 코드 + 줄 해설
   checker.py               이름 검사기
   errors.py                traceback → 쉬운 해설
+  explain.py               줄 해설 규칙 (무엇/왜/주의)
+  ai.py                    Claude API 호출, 키 저장
+  explainpanel.py          줄 해설·AI 해설 패널, 설정 대화상자
 ```

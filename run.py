@@ -43,12 +43,30 @@ def main():
     QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
     app = QApplication(sys.argv)
     app.setApplicationName("PyQt 학습 도우미")
+    app.setStyle("Fusion")
+    font = app.font()
+    font.setFamily("Malgun Gothic")
+    font.setPointSize(10)
+    app.setFont(font)
+    app.setStyleSheet(STYLE)
     w = MainWindow()
     w.show()
-    target = sys.argv[1] if len(sys.argv) > 1 else w.settings.value("lastFile", "")
-    if not (target and Path(target).exists() and w.open_path(target)):
-        w.open_dialog()
+    # with a file argument (icon drop, start.bat) open it; otherwise show the start screen
+    if len(sys.argv) > 1 and Path(sys.argv[1]).exists():
+        w.open_path(sys.argv[1])
     sys.exit(app.exec_())
+
+
+STYLE = """
+QLabel#paneTitle { background: #e9eef5; color: #1f3a5f; border-bottom: 1px solid #c9d4e3; }
+QPushButton#bigButton { font-size: 12pt; padding: 10px 18px; background: #2f6fd0; color: white;
+                        border: none; border-radius: 6px; }
+QPushButton#bigButton:hover { background: #255db3; }
+QWidget#welcome { background: #fafbfd; }
+QToolBar { spacing: 4px; padding: 3px; }
+QTabBar::tab { padding: 5px 12px; }
+QStatusBar QLabel { color: #555; padding: 0 6px; }
+"""
 
 
 if __name__ == "__main__":

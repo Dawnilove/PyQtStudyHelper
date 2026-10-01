@@ -90,6 +90,7 @@ class CodeEditor(QPlainTextEdit):
         self.setLineWrapMode(QPlainTextEdit.NoWrap)
         self.highlighter = PythonHighlighter(self.document())
         self.tooltip_for = None          # callable(name) -> str
+        self.zoomRequested = None        # callable(step) for Ctrl+wheel
         self._hover = None
         self._marked = None
         self._mark_sels = []
@@ -99,6 +100,7 @@ class CodeEditor(QPlainTextEdit):
         self.blockCountChanged.connect(lambda _: self._update_margin())
         self.updateRequest.connect(self._on_update_request)
         self.textChanged.connect(self._on_text_changed)
+        self.cursorPositionChanged.connect(self._apply)
         self._update_margin()
         self.viewport().setMouseTracking(True)
 
@@ -133,6 +135,12 @@ class CodeEditor(QPlainTextEdit):
         if self.error and self.error[0] == b:
             return _Note(f"실행 중 에러난 줄: {self.error[1]}")
         return None
+
+    def wheelEvent(self, e):
+        if e.modifiers() & Qt.ControlModifier and self.zoomRequested:
+            self.zoomRequested(1 if e.angleDelta().y() > 0 else -1)
+            return
+        super().wheelEvent(e)
 
     def mouseMoveEvent(self, e):
         super().mouseMoveEvent(e)
@@ -172,7 +180,11 @@ class CodeEditor(QPlainTextEdit):
         self._apply()
 
     def _apply(self):
-        sels = list(self._mark_sels)
+        cur = QTextEdit.ExtraSelection()          # current line, so the 해설 panel's line is obvious
+        cur.format.setBackground(QColor("#eaf2ff"))
+        cur.format.setProperty(QTextFormat.FullWidthSelection, True)
+        cur.cursor = QTextCursor(self.textCursor().block())
+        sels = [cur] + list(self._mark_sels)
         if self.error:
             block = self.document().findBlockByNumber(self.error[0])
             if block.isValid():

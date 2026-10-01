@@ -1,2 +1,4 @@
 PyQt5>=5.15
-PyQt5Designer    # optional: "Designer에서 열기" 버튼용
+anthropic>=1.11   # AI 해설 (선택)
+keyring           # API 키를 Windows 자격 증명 관리자에 저장
+PyQt5Designer     # 선택: "Designer에서 열기" 버튼용
