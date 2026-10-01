@@ -107,19 +107,6 @@ def short_name(model: str) -> str:
     return model.replace("ollama:", "내 PC ")
 
 
-def web_open_mode() -> str:
-    """'inside' (built-in browser window) or 'outside' (default browser)."""
-    from . import webview
-    v = QSettings(SERVICE, SERVICE).value("ai/web_open", "")
-    if v == "outside":
-        return "outside"
-    return "inside" if webview.available() else "outside"
-
-
-def set_web_open_mode(mode: str):
-    QSettings(SERVICE, SERVICE).setValue("ai/web_open", mode)
-
-
 def web_url(model: str) -> str:
     return next((u for mid, _, u in WEB_TARGETS if mid == model), WEB_TARGETS[0][2])
 
