@@ -111,6 +111,12 @@ def check(src: str, ui_names: set, top_classes=(), extra=()) -> list[Issue]:
             slot = m.group(1)
             if _in_comment_or_string(line, m.start()):
                 continue
+            auto = slot.startswith("on_") and "_" in slot[3:] and slot[3:].rsplit("_", 1)[0] in ui_names
+            if auto:
+                issues.append(Issue(i, m.start(1), m.end(1), "warn",
+                                    f"'{slot}' 는 setupUi()가 이름을 보고 자동으로도 연결해요 → "
+                                    "직접 connect까지 하면 두 번 실행돼요. 이름을 바꾸거나 이 줄을 지우세요."))
+                continue
             if slot not in funcs and slot not in qt_attrs and slot not in ui_names:
                 hint = difflib.get_close_matches(slot, sorted(funcs), n=1)
                 more = f" 혹시 '{hint[0]}'?" if hint else " def로 만들어 주세요."

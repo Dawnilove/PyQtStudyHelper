@@ -2,7 +2,7 @@
 import keyword
 import re
 
-from PyQt5.QtCore import QRect, QSize, Qt, pyqtSignal
+from PyQt5.QtCore import QRect, QSize, Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import (QColor, QFont, QPainter, QSyntaxHighlighter, QTextCharFormat,
                          QTextCursor, QTextFormat)
 from PyQt5.QtWidgets import QPlainTextEdit, QTextEdit, QToolTip, QWidget
@@ -96,6 +96,7 @@ class CodeEditor(QPlainTextEdit):
         self._mark_sels = []
         self.issues = []                 # checker.Issue list
         self.error = None                # (block_no, message) from the last run
+        self._flash = set()              # lines just inserted by the signal helper (green)
         self._line_area = _LineArea(self)
         self.blockCountChanged.connect(lambda _: self._update_margin())
         self.updateRequest.connect(self._on_update_request)
@@ -171,6 +172,34 @@ class CodeEditor(QPlainTextEdit):
             block = block.next()
         return out
 
+    def insert_plan(self, plan) -> int:
+        """Apply a codegen.Plan as ONE undo step; returns the new connect line number."""
+        doc = self.document()
+        cur = QTextCursor(doc)
+        cur.beginEditBlock()
+        stub_lines = []
+        if plan.stub:                                   # later position first
+            cur.setPosition(doc.findBlockByNumber(plan.stub_after).position())
+            cur.movePosition(QTextCursor.EndOfBlock)
+            text = plan.stub.rstrip("\n")
+            cur.insertText("\n" + text)
+            # stub = blank line + def…; +1 more for the connect line inserted above it
+            first = plan.stub_after + 3
+            stub_lines = list(range(first, first + text.count("\n")))
+        cur.setPosition(doc.findBlockByNumber(plan.connect_after).position())
+        cur.movePosition(QTextCursor.EndOfBlock)
+        cur.insertText("\n" + plan.connect_line)
+        cur.endEditBlock()
+        line = plan.connect_after + 1
+        self._flash = {line, *stub_lines}
+        QTimer.singleShot(3000, self._clear_flash)
+        self.go_to_line(line)
+        return line
+
+    def _clear_flash(self):
+        self._flash = set()
+        self._apply()
+
     def set_issues(self, issues):
         self.issues = issues
         self._apply()
@@ -185,6 +214,14 @@ class CodeEditor(QPlainTextEdit):
         cur.format.setProperty(QTextFormat.FullWidthSelection, True)
         cur.cursor = QTextCursor(self.textCursor().block())
         sels = [cur] + list(self._mark_sels)
+        for n in self._flash:
+            block = self.document().findBlockByNumber(n)
+            if block.isValid():
+                f = QTextEdit.ExtraSelection()
+                f.format.setBackground(QColor("#d3f9d8"))
+                f.format.setProperty(QTextFormat.FullWidthSelection, True)
+                f.cursor = QTextCursor(block)
+                sels.append(f)
         if self.error:
             block = self.document().findBlockByNumber(self.error[0])
             if block.isValid():

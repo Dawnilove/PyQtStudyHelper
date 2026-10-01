@@ -120,3 +120,55 @@ class UiModel:
             target.append(ET.Comment(f" 자식 요소 {len(nested)}개 생략 "))
         ET.indent(c, space="  ")
         return ET.tostring(c, encoding="unicode")
+
+
+EDITABLE_TAGS = ("string", "number", "double", "bool", "cstring")
+
+
+def editable_value(elem: ET.Element, prop: str) -> Optional[str]:
+    """Tag of a simple value we can edit in place (<string>, <number>…), else None."""
+    p = elem.find(f"property[@name='{prop}']")
+    if p is None or len(p) != 1 or len(p[0]) != 0 or p[0].tag not in EDITABLE_TAGS:
+        return None
+    return p[0].tag
+
+
+def set_property(path, obj_name: str, prop: str, value: str) -> Optional[str]:
+    """Write one simple property back into the .ui file. Returns an error message or None.
+
+    Keeps the XML declaration, comments and the file's line endings.
+    """
+    path = Path(path)
+    raw = path.read_bytes()
+    crlf = b"\r\n" in raw
+    parser = ET.XMLParser(target=ET.TreeBuilder(insert_comments=True))
+    root = ET.fromstring(raw, parser=parser)
+    elem = next((e for e in root.iter() if e.tag in ("widget", "layout", "action")
+                 and e.get("name") == obj_name), None)
+    if elem is None:
+        return f"{obj_name} 를 .ui에서 찾지 못했어요."
+    tag = editable_value(elem, prop)
+    if tag is None:
+        return f"{prop} 는 여기서 바꿀 수 없는 속성이에요. Designer에서 바꿔 주세요."
+    v = value
+    if tag == "number":
+        try:
+            v = str(int(value))
+        except ValueError:
+            return "정수(숫자)만 넣을 수 있어요."
+    elif tag == "double":
+        try:
+            v = repr(float(value))
+        except ValueError:
+            return "숫자만 넣을 수 있어요."
+    elif tag == "bool":
+        if value.strip().lower() not in ("true", "false"):
+            return "true 또는 false 만 넣을 수 있어요."
+        v = value.strip().lower()
+    elem.find(f"property[@name='{prop}']")[0].text = v
+    body = ET.tostring(root, encoding="unicode").replace(" />", "/>")   # Designer writes <x/>
+    text = '<?xml version="1.0" encoding="UTF-8"?>\n' + body + "\n"
+    if crlf:
+        text = text.replace("\r\n", "\n").replace("\n", "\r\n")
+    path.write_bytes(text.encode("utf-8"))
+    return None

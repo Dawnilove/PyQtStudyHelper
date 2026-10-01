@@ -66,6 +66,7 @@ QWidget#welcome { background: #fafbfd; }
 QToolBar { spacing: 4px; padding: 3px; }
 QTabBar::tab { padding: 5px 12px; }
 QStatusBar QLabel { color: #555; padding: 0 6px; }
+QLabel#legend { background: #f7f8fa; border-top: 1px solid #dde3ea; padding: 3px 6px; font-size: 9pt; }
 """
 
 

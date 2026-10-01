@@ -7,7 +7,9 @@ from PyQt5.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QF
                              QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton,
                              QTextBrowser, QVBoxLayout, QWidget)
 
-from . import ai, explain
+import re
+
+from . import ai, explain, notes
 
 
 # ------------------------------------------------------------- line explainer
@@ -15,6 +17,7 @@ class LineExplainView(QTextBrowser):
     def __init__(self):
         super().__init__()
         self.setOpenLinks(False)
+        self.vault = None
         self._last = None
         self.show_line([], -1)
 
@@ -28,23 +31,30 @@ class LineExplainView(QTextBrowser):
                          "<b>무엇을 하는지</b>와 <b>왜 이렇게 썼는지</b>가 여기 나와요.</p>")
             return
         line = lines[idx]
-        notes = explain.explain_line(line)
+        items = explain.explain_line(line)
         ctx = explain.context_of(lines, idx)
         h = [f"<div style='font-size:10pt'>",
              f"<pre style='background:#f4f4f4;padding:4px;white-space:pre-wrap'>"
              f"{idx + 1:>3}  {escape(line.strip())}</pre>"]
         if ctx:
             h.append(f"<p style='color:#0b6bcb;margin:2px 0 6px 0'>📍 {escape(ctx)}</p>")
-        if not notes:
+        if not items:
             h.append("<p style='color:#888'>이 줄에 대한 준비된 해설이 없어요. "
                      "<b>AI 해설</b> 탭에서 물어볼 수 있어요 (줄을 선택하고 Ctrl+E).</p>")
-        for n in notes:
+        for n in items:
             h.append(f"<p style='margin:8px 0 2px 0'><b>{escape(n.title)}</b></p>")
             h.append(f"<p style='margin:0 0 0 10px'>• {escape(n.what)}</p>")
             if n.why:
                 h.append(f"<p style='margin:2px 0 0 10px;color:#2b6e2b'>왜? {escape(n.why)}</p>")
             if n.pitfall:
                 h.append(f"<p style='margin:2px 0 0 10px;color:#c0392b'>주의! {escape(n.pitfall)}</p>")
+        links = []
+        for cls in dict.fromkeys(re.findall(r"\b(Q[A-Z]\w+)", line)):
+            hit = next(iter(notes.search(self.vault, cls, 1)), None) if self.vault else None
+            if hit:
+                links.append(f"<a href='{notes.obsidian_url(self.vault, hit)}'>{escape(notes.label(self.vault, hit))}</a>")
+        if links:
+            h.append("<p style='margin:10px 0 0 0'>📘 내 노트: " + " · ".join(links) + "</p>")
         h.append("</div>")
         self.setHtml("".join(h))
 

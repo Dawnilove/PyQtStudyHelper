@@ -8,14 +8,17 @@ from pathlib import Path
 from PyQt5 import uic
 from PyQt5.QtCore import (QFileSystemWatcher, QProcess, QProcessEnvironment, QSettings, Qt,
                           QTimer)
-from PyQt5.QtGui import QColor, QFont, QKeySequence
+from PyQt5.QtCore import QUrl
+from PyQt5.QtGui import QColor, QDesktopServices, QFont, QKeySequence
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import (QAction, QComboBox, QFileDialog, QLabel, QListWidget, QListWidgetItem,
                              QMainWindow, QMessageBox, QPlainTextEdit, QSizePolicy, QSplitter, QStyle,
                              QTabWidget, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
                              QStackedWidget, QPushButton, QHBoxLayout, QTextBrowser, QMenu)
 
-from . import ai, checker, codeview, errors
+from . import ai, checker, codeview, errors, notes
+from .signaldialog import SignalInsertDialog
+from .ui_model import set_property
 from .explainpanel import AiPanel, AiSettingsDialog, LineExplainView
 from .editor import CodeEditor
 from .locate import import_mismatch, main_py_in, py_for_ui, read_text, ui_candidates
@@ -60,6 +63,24 @@ class OutputView(QPlainTextEdit):
         f = self._frame_at(e.pos())
         if f and not self.textCursor().hasSelection():
             self.frameClicked.emit(*f)
+
+
+def _chip(bg, fg, text, border=None):
+    b = f"border:1px solid {border};" if border else ""
+    return (f"<span style='background:{bg};color:{fg};{b}'>&nbsp;{text}&nbsp;</span>")
+
+
+LEGEND = " &nbsp; ".join(f"<span style='white-space:nowrap'>{x}</span>" for x in [
+    "<b>색 표시</b>",
+    "<span style='color:#0b6bcb'><b><u>파란 밑줄</u></b></span> .ui 위젯 (마우스 올리기)",
+    "<span style='color:#e03131'>〰 빨간 물결</span> .ui에 없는 이름",
+    "<span style='color:#e8890c'>〰 주황 물결</span> 함수 없음·주의",
+    _chip("#ffd666", "#5c3c00", "노랑") + " 선택한 위젯을 쓰는 곳",
+    _chip("#ffd9d9", "#8a1f1f", "빨강 줄") + " 실행 에러 난 줄",
+    _chip("#d3f9d8", "#1e6b2e", "초록 줄") + " 방금 넣은 코드",
+    _chip("#eaf2ff", "#1f3a5f", "파랑 줄") + " 지금 줄 (해설 대상)",
+    "<span style='color:#e03131'>●</span> 문제 있는 줄 번호",
+])
 
 
 # QWidget containers that are normal to leave unused in Main.py
@@ -127,6 +148,9 @@ class MainWindow(QMainWindow):
         self.a_zoom_out = A("글자 작게", lambda: self.zoom(-1), QKeySequence.ZoomOut)
         self.a_zoom_reset = A("글자 크기 원래대로", lambda: self.zoom(0), "Ctrl+0")
         self.a_reset_layout = A("화면 배치 초기화", self.reset_layout)
+        self.a_vault = A("강의노트(Obsidian 볼트) 폴더 지정…", self.choose_vault)
+        self.a_legend = A("색 범례 보기", self.toggle_legend)
+        self.a_legend.setCheckable(True)
         self.a_help = A("사용법", self.show_help, "F1")
         self.a_home = A("시작 화면", lambda: self.stack.setCurrentIndex(0))
 
@@ -150,7 +174,9 @@ class MainWindow(QMainWindow):
         for a in (self.a_zoom_in, self.a_zoom_out, self.a_zoom_reset):
             m.addAction(a)
         m.addSeparator()
+        m.addAction(self.a_legend)
         m.addAction(self.a_reset_layout)
+        m.addAction(self.a_vault)
         m = mb.addMenu("도움말(&H)")
         m.addAction(self.a_help)
 
@@ -197,8 +223,12 @@ class MainWindow(QMainWindow):
 
         self.panel = PropertyPanel()
         self.panel.lineRequested.connect(self.editor.go_to_line)
+        self.panel.signalInsertRequested.connect(self.insert_signal)
+        self.panel.propertyEdited.connect(self.edit_property)
+        self.panel.noteRequested.connect(self.open_note)
 
         self.line_view = LineExplainView()
+        self.line_view.anchorClicked.connect(lambda url: self.open_note(url.toString()))
         self.ai_panel = AiPanel()
         self.ai_panel.settingsRequested.connect(self.ai_settings)
         self.ai_panel.explainRequested.connect(self.ai_explain)
@@ -220,6 +250,11 @@ class MainWindow(QMainWindow):
         left.addWidget(_titled("위젯 트리 · 흐린 이름 = Main.py에서 아직 안 씀", self.tree))
         left.setSizes([520, 300])
         self.editor_box = _titled("Main.py", self.editor)
+        self.legend = QLabel(LEGEND)
+        self.legend.setObjectName("legend")
+        self.legend.setWordWrap(True)
+        self.legend.setToolTip("코드 화면의 색 표시 뜻 (보기 메뉴에서 끄고 켤 수 있어요)")
+        self.editor_box.layout().addWidget(self.legend)
         right = QSplitter(Qt.Vertical)
         right.addWidget(_titled("선택한 위젯", self.panel))
         right.addWidget(_titled("해설 · 줄을 클릭하면 설명이 나와요", self.explain_tabs))
@@ -246,6 +281,10 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(self.stack)
         self.stack.currentChanged.connect(self._on_page_changed)
         self._on_page_changed(0)
+
+        show_legend = self.settings.value("view/legend", True) not in (False, "false")
+        self.a_legend.setChecked(show_legend)
+        self.legend.setVisible(show_legend)
 
         self.ai_status = QLabel()
         self.statusBar().addPermanentWidget(self.ai_status)
@@ -442,6 +481,57 @@ class MainWindow(QMainWindow):
             if not self.ai_panel.messages:
                 self.ai_panel.show_welcome()
 
+    # ------------------------------------------------- signal helper / .ui edit
+    def insert_signal(self, widget, sig, all_sigs):
+        if not self.py_path:
+            return
+        dlg = SignalInsertDialog(self.editor.toPlainText(), widget, sig, all_sigs, self)
+        if not dlg.exec_() or dlg.plan is None:
+            return
+        if dlg.plan.existing is not None:
+            self.editor.go_to_line(dlg.plan.existing)
+            self._status(f"이미 {dlg.plan.existing + 1}줄에 연결돼 있어요.")
+            return
+        line = self.editor.insert_plan(dlg.plan)
+        self.editor.setFocus()
+        self._status(f"{line + 1}줄에 연결 코드, 클래스 끝에 함수 틀을 넣었어요 (Ctrl+Z로 되돌리기, Ctrl+S로 저장).", 10000)
+
+    def edit_property(self, name, prop, value):
+        if not self.ui_path:
+            return
+        try:
+            err = set_property(self.ui_path, name, prop, value)
+        except Exception as e:
+            err = f"{type(e).__name__}: {e}"
+        if err:
+            QMessageBox.warning(self, ".ui 저장", err)
+            QTimer.singleShot(0, lambda: self.select(name, "reload"))
+            return
+        self._status(f"{self.ui_path.name} 저장: {name}.{prop} = {value!r}  "
+                     "(Designer에서 이 파일을 열어 두었다면 Designer에서 다시 열어 주세요)", 12000)
+        QTimer.singleShot(0, lambda: self.load_ui(self.ui_path))
+
+    def toggle_legend(self):
+        on = self.a_legend.isChecked()
+        self.legend.setVisible(on)
+        self.settings.setValue("view/legend", on)
+
+    def choose_vault(self):
+        d = QFileDialog.getExistingDirectory(self, "Obsidian 볼트 폴더 (.obsidian 이 있는 폴더)",
+                                             self.settings.value("vault", ""))
+        if not d:
+            return
+        v = notes.find_vault(d) or Path(d)
+        self.settings.setValue("vault", str(v))
+        self.panel.vault = self.line_view.vault = v
+        self._status(f"강의노트 폴더: {v}")
+        if self.sel:
+            self.select(self.sel, "reload")
+
+    def open_note(self, url):
+        if url.startswith("obsidian://"):
+            QDesktopServices.openUrl(QUrl.fromEncoded(url.encode()))
+
     def _update_ai_status(self):
         if not ai.available():
             self.ai_status.setText("AI: 패키지 없음")
@@ -490,6 +580,10 @@ class MainWindow(QMainWindow):
             return False
 
         self.py_path = p
+        vault = notes.find_vault(p) or (Path(self.settings.value("vault", "")) if self.settings.value("vault") else None)
+        if vault and vault.is_dir():
+            self.settings.setValue("vault", str(vault))
+        self.panel.vault = self.line_view.vault = vault if vault and vault.is_dir() else None
         self._mismatch = import_mismatch(p)
         text, self.encoding, self.crlf = read_text(p)
         self.editor.setPlainText(text)
