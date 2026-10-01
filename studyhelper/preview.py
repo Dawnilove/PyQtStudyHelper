@@ -1,9 +1,46 @@
 """Live preview of the .ui with a red highlight over the selected widget."""
+import io
+import os
+import xml.etree.ElementTree as ET
+from pathlib import Path
+
 from PyQt5 import uic
 from PyQt5.QtCore import QEvent, QObject, QPoint, QRect, Qt, pyqtSignal
 from PyQt5.QtGui import QColor, QPainter, QPen
 from PyQt5.QtWidgets import (QLabel, QLayout, QScrollArea, QScrollBar, QTabBar, QVBoxLayout,
                              QWidget)
+
+def sanitized_ui(ui_path) -> bytes:
+    """The .ui as the preview needs it — nothing that would import or call the student's code.
+
+    - custom (promoted) widgets -> their base class (<extends>), so their module isn't imported
+    - <connections> removed: Designer connections to slots that only exist in Main.py would fail
+    - <resources> removed: *_rc modules aren't imported (icons from .qrc just don't show)
+    """
+    root = ET.parse(ui_path).getroot()
+    ext = {cw.findtext("class"): (cw.findtext("extends") or "QWidget")
+           for cw in root.findall("customwidgets/customwidget")}
+    for w in root.iter("widget"):
+        cls, seen = w.get("class"), set()
+        while cls in ext and cls not in seen:
+            seen.add(cls)
+            cls = ext[cls]
+        w.set("class", cls)
+    for tag in ("customwidgets", "connections", "resources", "slots"):
+        for e in root.findall(tag):
+            root.remove(e)
+    return ET.tostring(root, encoding="utf-8")
+
+
+def load_for_preview(ui_path):
+    """uic.loadUi on the sanitized .ui; relative image paths still resolve from the .ui folder."""
+    old = os.getcwd()
+    try:
+        os.chdir(Path(ui_path).parent)
+        return uic.loadUi(io.BytesIO(sanitized_ui(ui_path)))
+    finally:
+        os.chdir(old)
+
 
 BLOCKED = {QEvent.MouseButtonPress, QEvent.MouseButtonRelease, QEvent.MouseButtonDblClick,
            QEvent.ContextMenu, QEvent.KeyPress, QEvent.KeyRelease}
@@ -65,8 +102,8 @@ class PreviewPane(QScrollArea):
             self._lay.addWidget(self.root)
             return None
         try:
-            w = uic.loadUi(str(ui_path))
-        except Exception as e:  # broken/half-saved .ui, missing custom widget...
+            w = load_for_preview(ui_path)
+        except Exception as e:  # broken/half-saved .ui…
             w = QLabel(f"미리보기를 만들 수 없어요:\n{type(e).__name__}: {e}")
             w.setWordWrap(True)
             self.root = w

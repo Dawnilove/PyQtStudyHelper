@@ -9,9 +9,21 @@ Qt Designer로 만든 `.ui`와 직접 짜는 `Main.py`를 **나란히 놓고 연
 3. (선택) AI 해설: 앱의 AI 메뉴 → 모델·키 설정. **무료**로 쓰려면 Gemini Flash(무료 티어 키) 또는 [Ollama](https://ollama.com/download)(내 PC, 완전 무료)
 4. (선택) 내 노트: 보기 → 내 노트 폴더 연결 (Obsidian 볼트나 .md 노트 폴더)
 
+## 다른 사람에게 주기
+
+`install.bat` 하나만으로는 안 되고 **폴더 전체**가 필요함 (`run.py`, `studyhelper/`, `tools/`, `requirements.txt` 등).
+배포용 zip 만들기 (git 기록·임시 파일 제외):
+
+```bash
+git archive --format=zip --prefix=PyQtStudyHelper/ -o ../PyQtStudyHelper.zip HEAD
+```
+
+받는 사람: zip 압축 풀기 → `PyQtStudyHelper\install.bat` 더블클릭 → 바탕화면 아이콘으로 실행.
+API 키·노트 폴더는 각자 앱에서 설정 (zip에는 들어 있지 않음).
+
 ## 실행
 
-- **바탕화면 `PyQt 학습 도우미` 아이콘** 더블클릭 (또는 `start.bat`). 파이썬/.ui 파일을 아이콘 위에 끌어다 놓거나, 실행 중인 창에 끌어다 놓아도 열림.
+- **바탕화면 `PyQt 학습 도우미` 아이콘** 더블클릭 (또는 `PyQt 학습 도우미 실행.bat`). 파이썬/.ui 파일을 아이콘 위에 끌어다 놓거나, 실행 중인 창에 끌어다 놓아도 열림.
 - 명령줄: `python run.py "경로/Main.py"` (.ui 파일이나 폴더도 가능)
 - 프로그램 자체 오류는 창으로 알려 주고 `error.log`에 남김.
 
@@ -65,7 +77,7 @@ Qt Designer로 만든 `.ui`와 직접 짜는 `Main.py`를 **나란히 놓고 연
 ```
 run.py                     진입점 (Qt 플러그인 경로 보정, 오류 창)
 install.bat                처음 설치 (패키지 + 바탕화면 아이콘)
-start.bat                  더블클릭 실행
+PyQt 학습 도우미 실행.bat                  더블클릭 실행
 tools/make_shortcut.py     바탕화면 아이콘 만들기
 studyhelper/
   mainwindow.py            화면 조립, 파일 감시, 실행

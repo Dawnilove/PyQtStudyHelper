@@ -50,6 +50,7 @@ class OutputView(QPlainTextEdit):
         super().__init__()
         self.setReadOnly(True)
         self.setFont(QFont("Consolas", 10))
+        self.setMaximumBlockCount(5000)          # an endless print loop must not freeze the app
         self.viewport().setMouseTracking(True)
 
     def _frame_at(self, pos):
@@ -549,7 +550,7 @@ class MainWindow(QMainWindow):
         if not d:
             return
         v = notes.find_vault(d) or Path(d)
-        n = sum(1 for _ in v.rglob("*.md"))
+        n = len(notes.note_files(v))
         if n == 0:
             QMessageBox.warning(self, "내 노트", f"{v} 안에 .md 노트가 없어요. 다른 폴더를 골라 주세요.")
             return
@@ -637,7 +638,8 @@ class MainWindow(QMainWindow):
             self.save_py()
         self.sel = new
         self.load_ui(self.ui_path)
-        self._status(f"{old} → {new}: .ui {n}곳, Main.py {len(dlg.changes)}줄 바꿨어요.", 10000)
+        self._status(f"{old} → {new}: .ui {n}곳, Main.py {len(dlg.changes)}줄 바꿨어요. "
+                     "(Designer에서 이 파일을 열어 두었다면 Designer에서 다시 열어 주세요)", 12000)
 
     def open_note(self, url):
         if url == "connect":
@@ -836,7 +838,11 @@ class MainWindow(QMainWindow):
                     continue
                 self.load_ui(p)
                 self._status(f"{p.name} 변경 감지 → 다시 불러왔어요 ({_now()})")
-            elif p == self.py_path and p.exists():
+            elif p == self.py_path and not p.exists():   # editors that save by replace
+                self._pending.add(p)
+                self._reload_timer.start()
+                continue
+            elif p == self.py_path:
                 text, *_ = read_text(p)
                 if text == self.editor.toPlainText():
                     pass
@@ -870,7 +876,7 @@ class MainWindow(QMainWindow):
         return True
 
     def _confirm_discard(self) -> bool:
-        if not self.editor.document().isModified():
+        if not self.py_path or not self.editor.document().isModified():
             return True
         r = QMessageBox.question(self, "저장하지 않은 변경", f"{self.py_path.name} 의 변경을 저장할까요?",
                                  QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel)
@@ -920,25 +926,31 @@ class MainWindow(QMainWindow):
             self._refresh_generated_py()
         except Exception as e:
             self._out(f"[도우미] gui.py 생성 실패: {e}\n", "#c0392b")
-        self.proc = QProcess(self)
-        self.proc.setWorkingDirectory(str(self.py_path.parent))
+        proc = QProcess(self)
+        proc.setWorkingDirectory(str(self.py_path.parent))
         env = QProcessEnvironment.systemEnvironment()
         env.insert("PYTHONIOENCODING", "utf-8")
         env.insert("PYTHONUNBUFFERED", "1")
-        self.proc.setProcessEnvironment(env)
-        self.proc.readyReadStandardOutput.connect(
-            lambda: self._out(bytes(self.proc.readAllStandardOutput()).decode("utf-8", "replace")))
-        self.proc.readyReadStandardError.connect(self._on_stderr)
-        self.proc.finished.connect(self._on_finished)
+        proc.setProcessEnvironment(env)
+        # bind to *this* process: a previous run that is still shutting down must not write here
+        proc.readyReadStandardOutput.connect(
+            lambda: proc is self.proc and self._out(bytes(proc.readAllStandardOutput()).decode("utf-8", "replace")))
+        proc.readyReadStandardError.connect(lambda: proc is self.proc and self._on_stderr())
+        proc.finished.connect(lambda code, st: proc is self.proc and self._on_finished(code, st))
+        proc.errorOccurred.connect(lambda err: proc is self.proc and err == QProcess.FailedToStart
+                                   and self._out(f"[도우미] 파이썬을 실행하지 못했어요: {sys.executable}\n", "#c0392b"))
+        self.proc = proc
+        self._run_py = self.py_path
         self._out(f"> python {self.py_path.name}\n", "#888888")
-        self.proc.start(sys.executable, ["-u", str(self.py_path)])
-        self.a_run.setEnabled(True)
+        proc.start(sys.executable, ["-u", str(self.py_path)])
+        proc.closeWriteChannel()        # no keyboard here: input() ends with EOFError instead of hanging
         self.a_stop.setEnabled(True)
 
     def stop(self):
         if self.proc and self.proc.state() != QProcess.NotRunning:
             self.proc.kill()
             self.proc.waitForFinished(2000)
+            self.a_stop.setEnabled(False)
 
     def _on_stderr(self):
         text = bytes(self.proc.readAllStandardError()).decode("utf-8", "replace")
@@ -950,7 +962,8 @@ class MainWindow(QMainWindow):
         self._out(f"\n[종료 코드 {code}]\n", "#888888")
         names, _tops = self._all_ui_names()
         top = self.model.top.name if self.model and self.model.top else None
-        ex = errors.explain(self._stderr, self.py_path.parent, names, top)
+        run_py = getattr(self, "_run_py", None) or self.py_path
+        ex = errors.explain(self._stderr, run_py.parent, names, top)
         if ex is None:
             return
         self._out(f"\n[도우미 해설] {ex.error_line}\n", "#6f42c1")

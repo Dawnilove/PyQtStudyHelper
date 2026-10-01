@@ -51,7 +51,7 @@ def main():
     app.setStyleSheet(STYLE)
     w = MainWindow()
     w.show()
-    # with a file argument (icon drop, start.bat) open it; otherwise show the start screen
+    # with a file argument (dropped on the icon / launcher .bat) open it; otherwise the start screen
     if len(sys.argv) > 1 and Path(sys.argv[1]).exists():
         w.open_path(sys.argv[1])
     sys.exit(app.exec_())

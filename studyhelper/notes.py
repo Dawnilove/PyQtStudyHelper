@@ -4,7 +4,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import quote
 
+import time
+
 _cache: dict[Path, tuple[float, str]] = {}
+_files: dict[Path, tuple[float, list]] = {}
+_hits: dict[tuple, tuple[float, list]] = {}
+TTL = 15            # seconds; notes edited in Obsidian show up after this
+MAX_FILES = 3000    # a huge folder (e.g. a whole drive) must not freeze the app
 
 
 @dataclass
@@ -33,19 +39,33 @@ def _text(path: Path) -> str:
     return c[1]
 
 
-def _note_files(vault: Path) -> list[Path]:
-    """PyQt note folders first (e.g. 'PyQT 강의 노트'), skipping hidden folders."""
-    files = [p for p in vault.rglob("*.md")
-             if not any(part.startswith(".") for part in p.relative_to(vault).parts)]
-    return sorted(files, key=lambda p: ("pyq" not in str(p.relative_to(vault)).lower(), str(p)))
+def note_files(vault: Path) -> list[Path]:
+    """.md files (PyQt folders first), hidden folders skipped; cached for TTL seconds."""
+    now = time.monotonic()
+    c = _files.get(vault)
+    if c and now - c[0] < TTL:
+        return c[1]
+    files = []
+    for p in vault.rglob("*.md"):
+        if not any(part.startswith(".") for part in p.relative_to(vault).parts):
+            files.append(p)
+            if len(files) >= MAX_FILES:
+                break
+    files.sort(key=lambda p: ("pyq" not in str(p.relative_to(vault)).lower(), str(p)))
+    _files[vault] = (now, files)
+    return files
 
 
 def search(vault: Path, term: str, limit: int = 8) -> list[Hit]:
     if not vault or not term:
         return []
+    key = (vault, term, limit)
+    c = _hits.get(key)
+    if c and time.monotonic() - c[0] < TTL:
+        return c[1]
     rx = re.compile(rf"(?<![A-Za-z0-9_]){re.escape(term)}(?![A-Za-z0-9_])")
     hits = []
-    for f in _note_files(vault):
+    for f in note_files(vault):
         try:
             text = _text(f)
         except OSError:
@@ -67,6 +87,7 @@ def search(vault: Path, term: str, limit: int = 8) -> list[Hit]:
         hits.append(Hit(f, heading, n, in_heading))
     pyq = lambda h: "pyq" in str(h.path.relative_to(vault)).lower()
     hits.sort(key=lambda h: (not pyq(h), not h.in_heading, -h.count))
+    _hits[key] = (time.monotonic(), hits[:limit])
     return hits[:limit]
 
 

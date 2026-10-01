@@ -137,6 +137,18 @@ class CodeEditor(QPlainTextEdit):
             return _Note(f"실행 중 에러난 줄: {self.error[1]}")
         return None
 
+    def dragEnterEvent(self, e):
+        if e.mimeData().hasUrls():      # let the main window open dropped files
+            e.ignore()
+            return
+        super().dragEnterEvent(e)
+
+    def dropEvent(self, e):
+        if e.mimeData().hasUrls():
+            e.ignore()
+            return
+        super().dropEvent(e)
+
     def wheelEvent(self, e):
         if e.modifiers() & Qt.ControlModifier and self.zoomRequested:
             self.zoomRequested(1 if e.angleDelta().y() > 0 else -1)

@@ -109,6 +109,10 @@ def _hint(err: str, ui_names: set, top_name: str | None) -> str:
     if err.startswith("SyntaxError"):
         return "문법 오류예요. 표시된 줄과 바로 윗줄의 괄호·따옴표·콜론(:)을 확인해 보세요."
 
+    if err.startswith("EOFError"):
+        return ("input() 으로 키보드 입력을 기다렸는데, 도우미의 실행 창에서는 입력할 수 없어요. "
+                "PyQt에서는 QLineEdit나 QInputDialog로 값을 받아요.")
+
     m = re.match(r"FileNotFoundError: .*?'(.+?)'", err)
     if m:
         return (f"'{m.group(1)}' 파일을 못 찾았어요. 상대 경로는 '실행한 위치' 기준이에요 — "

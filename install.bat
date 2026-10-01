@@ -2,7 +2,8 @@
 rem PyQt Study Helper - one-time setup: installs packages and makes a desktop shortcut.
 cd /d "%~dp0"
 
-where python >nul 2>nul
+rem "python --version" also catches the Microsoft Store stub that exists when Python isn't installed
+python --version >nul 2>nul
 if errorlevel 1 (
     echo.
     echo [!] Python was not found.

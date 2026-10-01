@@ -156,10 +156,11 @@ def set_model(model: str):
 
 
 def package_ok(provider: str) -> bool:
+    """Installed? (find_spec doesn't import — importing google.genai alone takes ~1 s)"""
+    import importlib.util
     try:
-        __import__(PROVIDERS[provider]["package"])
-        return True
-    except ImportError:
+        return importlib.util.find_spec(PROVIDERS[provider]["package"]) is not None
+    except (ImportError, ValueError):
         return False
 
 

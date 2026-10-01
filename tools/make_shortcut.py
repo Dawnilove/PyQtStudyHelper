@@ -7,6 +7,11 @@ ROOT = Path(__file__).resolve().parent.parent
 NAME = "PyQt 학습 도우미"
 
 
+def q(p) -> str:
+    """PowerShell single-quoted string literal."""
+    return "'" + str(p).replace("'", "''") + "'"
+
+
 def main():
     exe = Path(sys.executable)
     pyw = exe.with_name("pythonw.exe")
@@ -14,22 +19,24 @@ def main():
     ps = (
         "$ws = New-Object -ComObject WScript.Shell; "
         "$d = [Environment]::GetFolderPath('Desktop'); "
-        f"$l = $ws.CreateShortcut((Join-Path $d '{NAME}.lnk')); "
-        f"$l.TargetPath = '{target}'; "
-        f"$l.Arguments = '\"{ROOT / 'run.py'}\"'; "
-        f"$l.WorkingDirectory = '{ROOT}'; "
-        f"$l.IconLocation = '{target},0'; "
+        f"$l = $ws.CreateShortcut((Join-Path $d {q(NAME + '.lnk')})); "
+        f"$l.TargetPath = {q(target)}; "
+        f"$l.Arguments = {q(chr(34) + str(ROOT / 'run.py') + chr(34))}; "
+        f"$l.WorkingDirectory = {q(ROOT)}; "
+        f"$l.IconLocation = {q(str(target) + ',0')}; "
         "$l.Description = 'PyQt 학습 도우미 (.ui 미리보기 + Main.py 연동)'; "
-        "$l.Save(); Write-Output (Join-Path $d '" + NAME + ".lnk')"
+        "$l.Save()"
     )
+    # PowerShell answers in the console code page, not UTF-8: don't echo its output back
     r = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps],
-                       capture_output=True, text=True, encoding="utf-8", errors="replace")
+                       capture_output=True)
     if r.returncode == 0:
-        print(f"    Shortcut created: {r.stdout.strip()}")
+        print(f"    Shortcut created on the desktop: {NAME}")
     else:
-        print("    Could not create the shortcut. You can start the app with start.bat instead.")
-        print(r.stderr.strip()[:500])
+        print(f"    Could not create the shortcut. Start the app with '{NAME} 실행.bat' instead.")
 
 
 if __name__ == "__main__":
+    sys.stdout.reconfigure(errors="replace")      # never crash on a console that can't show a character
     main()
+
