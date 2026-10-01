@@ -1,0 +1,116 @@
+"""Parse a Qt Designer .ui file into a simple tree of named nodes."""
+import copy
+import xml.etree.ElementTree as ET
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Optional
+
+
+@dataclass(eq=False)
+class UiNode:
+    name: str
+    cls: str
+    kind: str                       # 'widget' | 'layout' | 'action'
+    elem: ET.Element
+    item: Optional[ET.Element]      # <item> wrapper when placed in a layout
+    layout: Optional["UiNode"]      # layout that holds this node
+    parent: Optional["UiNode"]      # tree parent (widget or layout)
+    children: list = field(default_factory=list)
+
+    @property
+    def props(self) -> list:
+        """(name, value) pairs of the node's own <property> elements."""
+        out = [(p.get("name", ""), prop_value(p)) for p in self.elem.findall("property")]
+        out += [(f"[attr] {p.get('name', '')}", prop_value(p)) for p in self.elem.findall("attribute")]
+        return out
+
+    @property
+    def grid_pos(self) -> Optional[tuple]:
+        """(row, col, rowspan, colspan) when in a grid/form layout."""
+        if self.item is None or self.item.get("row") is None:
+            return None
+        return (int(self.item.get("row")), int(self.item.get("column", 0)),
+                int(self.item.get("rowspan", 1)), int(self.item.get("colspan", 1)))
+
+    def position_text(self) -> str:
+        if self.kind == "action":
+            return "메뉴/툴바에서 쓰는 QAction (화면 위치 없음)"
+        if self.layout is None:
+            if self.parent is None:
+                return "최상위 창"
+            if self.elem.find("property[@name='geometry']") is not None:
+                return f"{self.parent.name} 안 절대 위치 (레이아웃 없음)"
+            return f"{self.parent.name} 안"
+        pos = self.grid_pos
+        if pos:
+            r, c, rs, cs = pos
+            span = "" if (rs, cs) == (1, 1) else f", {rs}행×{cs}열 차지"
+            return f"{self.layout.name} ({self.layout.cls}) 의 {r}행 {c}열{span}"
+        idx = self.layout.children.index(self)
+        return f"{self.layout.name} ({self.layout.cls}) 의 {idx}번째"
+
+
+def prop_value(p: ET.Element) -> str:
+    if len(p) == 0:
+        return p.text or ""
+    v = p[0]
+    if len(v) == 0:
+        return v.text or ""
+    return ", ".join(f"{c.tag}={c.text}" for c in v)
+
+
+class UiModel:
+    def __init__(self, path):
+        self.path = Path(path)
+        self.root_elem = ET.parse(self.path).getroot()
+        self.nodes: dict[str, UiNode] = {}
+        self.top: Optional[UiNode] = None
+        self.actions: list[UiNode] = []
+        top = self.root_elem.find("widget")
+        if top is not None:
+            self.top = self._widget(top, None, None, None)
+
+    def _add(self, node: UiNode) -> UiNode:
+        if node.name:
+            self.nodes[node.name] = node
+        if node.parent is not None:
+            node.parent.children.append(node)
+        return node
+
+    def _widget(self, elem, item, layout, parent) -> UiNode:
+        node = self._add(UiNode(elem.get("name", ""), elem.get("class", ""), "widget",
+                                elem, item, layout, parent))
+        for child in elem:
+            if child.tag == "widget":
+                self._widget(child, None, None, node)
+            elif child.tag == "layout":
+                self._layout(child, None, None, node)
+            elif child.tag == "action":
+                self.actions.append(self._add(UiNode(child.get("name", ""), "QAction", "action",
+                                                     child, None, None, None)))
+        return node
+
+    def _layout(self, elem, item, layout, parent) -> UiNode:
+        node = self._add(UiNode(elem.get("name", ""), elem.get("class", ""), "layout",
+                                elem, item, layout, parent))
+        for it in elem.findall("item"):
+            for child in it:
+                if child.tag == "widget":
+                    self._widget(child, it, node, node)
+                elif child.tag == "layout":
+                    self._layout(child, it, node, node)
+        return node
+
+    def snippet(self, name: str) -> str:
+        """XML of the node (with its <item> wrapper), nested children collapsed."""
+        node = self.nodes[name]
+        src = node.item if node.item is not None else node.elem
+        c = copy.deepcopy(src)
+        target = c if node.item is None else c.find(node.elem.tag)
+        nested = [x for x in list(target) if x.tag in ("widget", "layout", "item")]
+        for x in nested:
+            target.remove(x)
+        if nested:
+            target.append(ET.Comment(f" 자식 요소 {len(nested)}개 생략 "))
+        ET.indent(c, space="  ")
+        return ET.tostring(c, encoding="unicode")

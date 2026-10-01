@@ -1,0 +1,211 @@
+"""Main.py editor: line numbers, Python highlighting, hover on self.<widget>."""
+import keyword
+import re
+
+from PyQt5.QtCore import QRect, QSize, Qt, pyqtSignal
+from PyQt5.QtGui import (QColor, QFont, QPainter, QSyntaxHighlighter, QTextCharFormat,
+                         QTextCursor, QTextFormat)
+from PyQt5.QtWidgets import QPlainTextEdit, QTextEdit, QToolTip, QWidget
+
+SELF_ATTR = re.compile(r"\bself\.(\w+)")
+
+
+def _fmt(color, bold=False, italic=False, underline=False):
+    f = QTextCharFormat()
+    f.setForeground(QColor(color))
+    if bold:
+        f.setFontWeight(QFont.Bold)
+    f.setFontItalic(italic)
+    f.setFontUnderline(underline)
+    return f
+
+
+class PythonHighlighter(QSyntaxHighlighter):
+    KW = _fmt("#0033b3", bold=True)
+    SELF = _fmt("#94558d", italic=True)
+    STR = _fmt("#067d17")
+    COMMENT = _fmt("#8c8c8c", italic=True)
+    NUM = _fmt("#1750eb")
+    WIDGET = _fmt("#0b6bcb", bold=True, underline=True)
+
+    def __init__(self, doc):
+        super().__init__(doc)
+        self.names: set[str] = set()
+        kw = "|".join(keyword.kwlist)
+        self.rules = [
+            (re.compile(rf"\b({kw})\b"), self.KW),
+            (re.compile(r"\bself\b"), self.SELF),
+            (re.compile(r"\b\d+(\.\d+)?\b"), self.NUM),
+        ]
+        self.strings = re.compile(r"""[rbfu]{0,2}("[^"\n]*"|'[^'\n]*')""", re.I)
+
+    def highlightBlock(self, text):
+        for rx, fmt in self.rules:
+            for m in rx.finditer(text):
+                self.setFormat(m.start(), m.end() - m.start(), fmt)
+        for m in SELF_ATTR.finditer(text):
+            if m.group(1) in self.names:
+                self.setFormat(m.start(1), len(m.group(1)), self.WIDGET)
+        for m in self.strings.finditer(text):
+            self.setFormat(m.start(), m.end() - m.start(), self.STR)
+        # comment: '#' not inside a string
+        in_str = None
+        for i, ch in enumerate(text):
+            if in_str:
+                if ch == in_str:
+                    in_str = None
+            elif ch in "\"'":
+                in_str = ch
+            elif ch == "#":
+                self.setFormat(i, len(text) - i, self.COMMENT)
+                break
+
+
+class _LineArea(QWidget):
+    def __init__(self, editor):
+        super().__init__(editor)
+        self.editor = editor
+
+    def sizeHint(self):
+        return QSize(self.editor.line_area_width(), 0)
+
+    def paintEvent(self, e):
+        self.editor.paint_line_area(e)
+
+
+class CodeEditor(QPlainTextEdit):
+    nameHovered = pyqtSignal(str)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        font = QFont("Consolas", 10)
+        font.setStyleHint(QFont.Monospace)
+        self.setFont(font)
+        self.setTabStopDistance(4 * self.fontMetrics().horizontalAdvance(" "))
+        self.setLineWrapMode(QPlainTextEdit.NoWrap)
+        self.highlighter = PythonHighlighter(self.document())
+        self.tooltip_for = None          # callable(name) -> str
+        self._hover = None
+        self._marked = None
+        self._line_area = _LineArea(self)
+        self.blockCountChanged.connect(lambda _: self._update_margin())
+        self.updateRequest.connect(self._on_update_request)
+        self.textChanged.connect(lambda: self.mark(self._marked))
+        self._update_margin()
+        self.viewport().setMouseTracking(True)
+
+    # --- names known from the .ui -------------------------------------
+    def set_names(self, names):
+        self.highlighter.names = set(names)
+        self.highlighter.rehighlight()
+
+    # --- hover ----------------------------------------------------------
+    def name_at(self, pos):
+        cur = self.cursorForPosition(pos)
+        # cursorForPosition snaps to the nearest char; make sure we're really over text
+        if self.cursorRect(cur).bottom() < pos.y() - self.fontMetrics().height():
+            return None
+        col = cur.positionInBlock()
+        text = cur.block().text()
+        for m in SELF_ATTR.finditer(text):
+            if m.start() <= col <= m.end() and m.group(1) in self.highlighter.names:
+                return m.group(1)
+        return None
+
+    def mouseMoveEvent(self, e):
+        super().mouseMoveEvent(e)
+        name = self.name_at(e.pos())
+        if name and name != self._hover:
+            self.nameHovered.emit(name)
+            if self.tooltip_for:
+                QToolTip.showText(e.globalPos(), self.tooltip_for(name), self.viewport())
+        elif not name:
+            QToolTip.hideText()
+        self._hover = name
+
+    # --- marking all uses of self.<name> ------------------------------
+    def occurrences(self, name) -> list[int]:
+        """Block numbers (0-based) that use self.<name>."""
+        if not name:
+            return []
+        rx = re.compile(rf"\bself\.{re.escape(name)}\b")
+        out, block = [], self.document().firstBlock()
+        while block.isValid():
+            if rx.search(block.text()):
+                out.append(block.blockNumber())
+            block = block.next()
+        return out
+
+    def mark(self, name):
+        self._marked = name
+        sels = []
+        if name:
+            rx = re.compile(rf"\bself\.{re.escape(name)}\b")
+            block = self.document().firstBlock()
+            while block.isValid():
+                for m in rx.finditer(block.text()):
+                    line = QTextEdit.ExtraSelection()
+                    line.format.setBackground(QColor("#fff4c2"))
+                    line.format.setProperty(QTextFormat.FullWidthSelection, True)
+                    line.cursor = QTextCursor(block)
+                    sels.append(line)
+                    word = QTextEdit.ExtraSelection()
+                    word.format.setBackground(QColor("#ffd666"))
+                    c = QTextCursor(block)
+                    c.setPosition(block.position() + m.start())
+                    c.setPosition(block.position() + m.end(), QTextCursor.KeepAnchor)
+                    word.cursor = c
+                    sels.append(word)
+                block = block.next()
+        self.setExtraSelections(sels)
+        self._line_area.update()
+
+    def go_to_line(self, block_no):
+        block = self.document().findBlockByNumber(block_no)
+        if block.isValid():
+            self.setTextCursor(QTextCursor(block))
+            self.centerCursor()
+
+    def reveal(self, name):
+        """Scroll so the first use of self.<name> is visible (without stealing focus)."""
+        occ = self.occurrences(name)
+        if not occ:
+            return
+        first_visible = self.firstVisibleBlock().blockNumber()
+        visible_lines = self.viewport().height() // max(1, self.fontMetrics().height())
+        if not any(first_visible <= b < first_visible + visible_lines for b in occ):
+            self.go_to_line(occ[0])
+
+    # --- line numbers ---------------------------------------------------
+    def line_area_width(self):
+        digits = len(str(max(1, self.blockCount())))
+        return 12 + self.fontMetrics().horizontalAdvance("9") * max(3, digits)
+
+    def _update_margin(self):
+        self.setViewportMargins(self.line_area_width(), 0, 0, 0)
+
+    def _on_update_request(self, rect, dy):
+        if dy:
+            self._line_area.scroll(0, dy)
+        else:
+            self._line_area.update(0, rect.y(), self._line_area.width(), rect.height())
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        cr = self.contentsRect()
+        self._line_area.setGeometry(QRect(cr.left(), cr.top(), self.line_area_width(), cr.height()))
+
+    def paint_line_area(self, e):
+        p = QPainter(self._line_area)
+        p.fillRect(e.rect(), QColor("#f3f3f3"))
+        marked = set(self.occurrences(self._marked))
+        block = self.firstVisibleBlock()
+        top = round(self.blockBoundingGeometry(block).translated(self.contentOffset()).top())
+        h = self.fontMetrics().height()
+        while block.isValid() and top <= e.rect().bottom():
+            if block.isVisible():
+                n = block.blockNumber()
+                p.setPen(QColor("#b8860b") if n in marked else QColor("#999999"))
+                p.drawText(0, top, self._line_area.width() - 6, h, Qt.AlignRight, str(n + 1))
+            top += round(self.blockBoundingRect(block).height())
+            block = block.next()
