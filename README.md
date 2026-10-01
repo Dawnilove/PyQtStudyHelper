@@ -2,9 +2,9 @@
 
 Qt Designer로 만든 `.ui`와 직접 짜는 `Main.py`를 **나란히 놓고 연결해서 보는** PyQt5 학습용 도구.
 
-```bash
-python run.py "경로/Main.py"     # .ui 파일이나 폴더를 넘겨도 됨
-```
+- **바탕화면 `PyQt 학습 도우미` 아이콘** 더블클릭 (또는 `start.bat`). 파이썬/.ui 파일을 아이콘 위에 끌어다 놓거나, 실행 중인 창에 끌어다 놓아도 열림.
+- 명령줄: `python run.py "경로/Main.py"` (.ui 파일이나 폴더도 가능)
+- 프로그램 자체 오류는 창으로 알려 주고 `error.log`에 남김.
 
 ## 화면
 
@@ -14,26 +14,30 @@ python run.py "경로/Main.py"     # .ui 파일이나 폴더를 넘겨도 됨
 | 위젯 트리 | `.ui` 안의 위젯·레이아웃 계층. 레이아웃은 회색 기울임 |
 | Main.py | 편집 가능 (Ctrl+S 저장). `.ui`에 있는 `self.이름`은 파랗게 표시, 마우스를 올리면 선택 |
 | 속성 | 클래스·위치 / 속성 표 / Main.py에서 쓰는 곳 / 시그널 / 코드로 보기 / `.ui 원본` |
-| 실행 결과 | ▶ 실행(F5) 출력과 에러 |
+| 실행 결과 | ▶ 실행(F5) 출력과 에러, 에러 해설. `File "...", line N` 줄을 클릭하면 이동 |
+| 검사 | 이름 검사 결과 목록 (클릭하면 이동) |
 
 ## 동작
 
 - **.ui 자동 찾기**: 파이썬 파일을 열면 ① `from gui import ...`처럼 import한 모듈 → ② 코드 속 `'gui.ui'`, `f'{GUI_FILE_NAME}.ui'` 같은 문자열 → ③ 같은 폴더의 `.ui` 순서로 찾음. 후보가 여럿이면 툴바 드롭다운에서 바꿈. `.ui`를 열면 그걸 쓰는 `.py`(Main.py 우선)를 찾아 엶.
 - **자동 갱신**: Designer에서 `.ui`를 저장하면 미리보기·트리·속성이 바로 다시 불러와짐 (선택 유지). Main.py가 밖에서 바뀌어도 다시 불러옴 (저장 안 한 편집이 있으면 건드리지 않음).
 - **실행 안전장치**: ▶ 실행 시 Main.py가 `gui`를 import하는데 `gui.py`가 없거나 `gui.ui`보다 오래됐으면 먼저 다시 만들어 줌.
+- **이름 검사기** (입력할 때마다): `.ui`에 없는 `self.이름`은 빨간 물결 밑줄 + 비슷한 이름 제안, 없는 슬롯 함수는 주황 밑줄, 문법 오류, pyuic 변환 파일과 import 모듈 불일치 경고. Main.py에서 안 쓰는 위젯은 트리에서 흐리게.
+- **에러 해설**: 실행이 에러로 끝나면 AttributeError·ImportError·NameError·슬롯 인자 개수·타입 오류 등을 쉬운 말로 풀고, 에러 난 줄로 이동해 빨갛게 표시.
 - **Designer에서 열기**: 현재 `.ui`를 Qt Designer로 엶 (`PyQt5Designer` 패키지의 designer.exe).
 
 ## 단계 계획
 
 1. ✅ 미리보기, 속성 패널(코드로 보기), Main.py 연동, `.ui` 자동 감지, 실행
-2. 이름 검사기(`.ui`에 없는 `self.이름` 밑줄, 없는 슬롯 경고, 안 쓰는 위젯 표시), 에러 번역과 줄 이동
+2. ✅ 이름 검사기, 에러 해설과 줄 이동, 바로 실행 아이콘
 3. 시그널 도우미(connect + 슬롯 틀 삽입), text 편집 → `.ui` 저장, Obsidian 노트 연결
 4. 도전 모드, objectName 이름 바꾸기
 
 ## 구조
 
 ```
-run.py                     진입점
+run.py                     진입점 (Qt 플러그인 경로 보정, 오류 창)
+start.bat                  더블클릭 실행
 studyhelper/
   mainwindow.py            화면 조립, 파일 감시, 실행
   preview.py               미리보기 + 빨간 강조 오버레이
@@ -42,4 +46,6 @@ studyhelper/
   ui_model.py              .ui XML → 위젯 트리
   locate.py                .py ↔ .ui 찾기
   codeview.py              pyuic 생성 코드 + 줄 해설
+  checker.py               이름 검사기
+  errors.py                traceback → 쉬운 해설
 ```

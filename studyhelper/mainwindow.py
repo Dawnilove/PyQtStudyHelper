@@ -9,13 +9,14 @@ from PyQt5 import uic
 from PyQt5.QtCore import (QFileSystemWatcher, QProcess, QProcessEnvironment, QSettings, Qt,
                           QTimer)
 from PyQt5.QtGui import QColor, QFont, QKeySequence
-from PyQt5.QtWidgets import (QAction, QComboBox, QFileDialog, QLabel, QMainWindow, QMessageBox,
-                             QPlainTextEdit, QSizePolicy, QSplitter, QStyle, QTreeWidget, QTreeWidgetItem,
-                             QVBoxLayout, QWidget)
+from PyQt5.QtCore import pyqtSignal
+from PyQt5.QtWidgets import (QAction, QComboBox, QFileDialog, QLabel, QListWidget, QListWidgetItem,
+                             QMainWindow, QMessageBox, QPlainTextEdit, QSizePolicy, QSplitter, QStyle,
+                             QTabWidget, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
 
-from . import codeview
+from . import checker, codeview, errors
 from .editor import CodeEditor
-from .locate import main_py_in, py_for_ui, read_text, ui_candidates
+from .locate import import_mismatch, main_py_in, py_for_ui, read_text, ui_candidates
 from .preview import PreviewPane
 from .props import PropertyPanel
 from .ui_model import UiModel
@@ -32,6 +33,35 @@ def find_designer() -> str | None:
         if p.exists():
             return str(p)
     return None
+
+
+class OutputView(QPlainTextEdit):
+    """Run output; clicking a 'File "...", line N' traceback line jumps there."""
+    frameClicked = pyqtSignal(str, int)
+
+    def __init__(self):
+        super().__init__()
+        self.setReadOnly(True)
+        self.setFont(QFont("Consolas", 10))
+        self.viewport().setMouseTracking(True)
+
+    def _frame_at(self, pos):
+        m = errors.FRAME.match(self.cursorForPosition(pos).block().text())
+        return (m.group(1), int(m.group(2))) if m else None
+
+    def mouseMoveEvent(self, e):
+        super().mouseMoveEvent(e)
+        self.viewport().setCursor(Qt.PointingHandCursor if self._frame_at(e.pos()) else Qt.IBeamCursor)
+
+    def mouseReleaseEvent(self, e):
+        super().mouseReleaseEvent(e)
+        f = self._frame_at(e.pos())
+        if f and not self.textCursor().hasSelection():
+            self.frameClicked.emit(*f)
+
+
+# QWidget containers that are normal to leave unused in Main.py
+_CONTAINERS = {"QWidget", "QMenuBar", "QStatusBar", "QToolBar", "QFrame", "QMenu"}
 
 
 def _titled(title: str, widget: QWidget) -> QWidget:
@@ -59,6 +89,10 @@ class MainWindow(QMainWindow):
         self.generated = ""
         self.sel: str | None = None
         self.proc: QProcess | None = None
+        self._stderr = ""
+        self._mismatch = None
+        self._names_cache = {}           # ui path -> (mtime, names, top class)
+        self.setAcceptDrops(True)
 
         self.resize(1500, 900)
         self._build_ui()
@@ -66,6 +100,8 @@ class MainWindow(QMainWindow):
         self.watcher.fileChanged.connect(self._on_file_changed)
         self._pending = set()
         self._reload_timer = QTimer(self, singleShot=True, interval=300, timeout=self._reload_pending)
+        self._check_timer = QTimer(self, singleShot=True, interval=400, timeout=self.run_check)
+        self.editor.textChanged.connect(self._check_timer.start)
         self._update_title()
 
     # ------------------------------------------------------------------ UI
@@ -111,9 +147,13 @@ class MainWindow(QMainWindow):
         self.panel = PropertyPanel()
         self.panel.lineRequested.connect(self.editor.go_to_line)
 
-        self.output = QPlainTextEdit()
-        self.output.setReadOnly(True)
-        self.output.setFont(QFont("Consolas", 10))
+        self.output = OutputView()
+        self.output.frameClicked.connect(self._on_frame_clicked)
+        self.issue_list = QListWidget()
+        self.issue_list.itemClicked.connect(self._on_issue_clicked)
+        self.bottom = QTabWidget()
+        self.bottom.addTab(self.output, "실행 결과")
+        self.bottom.addTab(self.issue_list, "검사")
 
         left = QSplitter(Qt.Vertical)
         left.addWidget(_titled("실시간 미리보기 · 클릭하면 선택", self.preview))
@@ -127,7 +167,7 @@ class MainWindow(QMainWindow):
         top.setSizes([480, 620, 400])
         main = QSplitter(Qt.Vertical)
         main.addWidget(top)
-        main.addWidget(_titled("실행 결과", self.output))
+        main.addWidget(self.bottom)
         main.setSizes([700, 160])
         self.setCentralWidget(main)
         self.splitters = {"left": left, "top": top, "main": main}
@@ -176,6 +216,7 @@ class MainWindow(QMainWindow):
             return False
 
         self.py_path = p
+        self._mismatch = import_mismatch(p)
         text, self.encoding, self.crlf = read_text(p)
         self.editor.setPlainText(text)
         self.editor.document().setModified(False)
@@ -243,6 +284,7 @@ class MainWindow(QMainWindow):
             self.sel = None
             self.preview.select(None)
             self.editor.mark(None)
+        self.run_check()
 
     def _fill_tree(self):
         self.tree.clear()
@@ -266,7 +308,7 @@ class MainWindow(QMainWindow):
 
         add(self.model.top, None)
         if self.model.actions:
-            group = QTreeWidgetItem(["(액션)", ""])
+            group = QTreeWidgetItem(["(액션 · 버튼 그룹)", ""])
             group.setFlags(Qt.ItemIsEnabled)
             self.tree.addTopLevelItem(group)
             for a in self.model.actions:
@@ -343,6 +385,8 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "저장 실패", str(e))
             return False
         self.editor.document().setModified(False)
+        self._mismatch = import_mismatch(self.py_path)
+        self.run_check()
         self._status(f"{self.py_path.name} 저장함")
         return True
 
@@ -389,6 +433,10 @@ class MainWindow(QMainWindow):
         if self.editor.document().isModified() and not self.save_py():
             return
         self.output.clear()
+        self._stderr = ""
+        self.editor.error = None
+        self.editor.set_issues(self.editor.issues)
+        self.bottom.setCurrentWidget(self.output)
         try:
             self._refresh_generated_py()
         except Exception as e:
@@ -401,8 +449,7 @@ class MainWindow(QMainWindow):
         self.proc.setProcessEnvironment(env)
         self.proc.readyReadStandardOutput.connect(
             lambda: self._out(bytes(self.proc.readAllStandardOutput()).decode("utf-8", "replace")))
-        self.proc.readyReadStandardError.connect(
-            lambda: self._out(bytes(self.proc.readAllStandardError()).decode("utf-8", "replace"), "#c0392b"))
+        self.proc.readyReadStandardError.connect(self._on_stderr)
         self.proc.finished.connect(self._on_finished)
         self._out(f"> python {self.py_path.name}\n", "#888888")
         self.proc.start(sys.executable, ["-u", str(self.py_path)])
@@ -414,9 +461,127 @@ class MainWindow(QMainWindow):
             self.proc.kill()
             self.proc.waitForFinished(2000)
 
+    def _on_stderr(self):
+        text = bytes(self.proc.readAllStandardError()).decode("utf-8", "replace")
+        self._stderr += text
+        self._out(text, "#c0392b")
+
     def _on_finished(self, code, _status):
         self.a_stop.setEnabled(False)
         self._out(f"\n[종료 코드 {code}]\n", "#888888")
+        names, _tops = self._all_ui_names()
+        top = self.model.top.name if self.model and self.model.top else None
+        ex = errors.explain(self._stderr, self.py_path.parent, names, top)
+        if ex is None:
+            return
+        self._out(f"\n[도우미 해설] {ex.error_line}\n", "#6f42c1")
+        if ex.hint:
+            self._out(f"  → {ex.hint}\n", "#6f42c1")
+        if ex.file is not None and ex.line:
+            self._out(f'  File "{ex.file}", line {ex.line}   ← 클릭하면 이동\n', "#0b6bcb")
+            if self._same_file(ex.file, self.py_path):
+                self.editor.set_error(ex.line - 1, ex.hint or ex.error_line)
+                self.editor.go_to_line(ex.line - 1)
+                self._status(f"에러 위치: {ex.file.name} {ex.line}번째 줄", 10000)
+
+    @staticmethod
+    def _same_file(a, b) -> bool:
+        try:
+            return Path(a).resolve() == Path(b).resolve()
+        except OSError:
+            return False
+
+    def _on_frame_clicked(self, path, line):
+        if self._same_file(path, self.py_path):
+            self.editor.go_to_line(line - 1)
+            self.editor.setFocus()
+        elif Path(path).suffix == ".py" and Path(path).exists() \
+                and self._same_file(Path(path).parent, self.py_path.parent):
+            if self.open_path(path):
+                self.editor.go_to_line(line - 1)
+        else:
+            self._status(f"{path} 는 내 코드가 아니라 라이브러리 파일이에요.")
+
+    def _on_issue_clicked(self, item):
+        line = item.data(Qt.UserRole)
+        if line is not None:
+            self.editor.go_to_line(line)
+            self.editor.setFocus()
+
+    # ---------------------------------------------------------------- check
+    def _all_ui_names(self):
+        """Names from every .ui the file explicitly uses, plus the one shown."""
+        names, tops = set(), set()
+        if not self.py_path:
+            return names, tops
+        uis = ui_candidates(self.py_path, include_folder=False)
+        if self.ui_path and self.ui_path not in uis:
+            uis.append(self.ui_path)
+        for u in uis:
+            try:
+                mt = u.stat().st_mtime
+                cached = self._names_cache.get(u)
+                if cached is None or cached[0] != mt:
+                    m = UiModel(u)
+                    cached = (mt, set(m.nodes), m.top.cls if m.top else "QWidget")
+                    self._names_cache[u] = cached
+            except Exception:
+                continue
+            names |= cached[1]
+            tops.add(cached[2])
+        return names, tops
+
+    def run_check(self):
+        if not self.py_path:
+            return
+        text = self.editor.toPlainText()
+        names, tops = self._all_ui_names()
+        extra = []
+        if self._mismatch:
+            ln, msg = self._mismatch
+            line_text = self.editor.document().findBlockByNumber(ln).text()
+            extra.append(checker.Issue(ln, 0, len(line_text), "warn", msg))
+        issues = checker.check(text, names, tops, extra)
+        self.editor.set_issues(issues)
+
+        self.issue_list.clear()
+        for x in issues:
+            it = QListWidgetItem(f"{x.line + 1:>4}줄   {x.msg}")
+            it.setForeground(QColor("#c92a2a" if x.level == "error" else "#b35c00"))
+            it.setData(Qt.UserRole, x.line)
+            self.issue_list.addItem(it)
+        if not issues:
+            ok = QListWidgetItem("문제 없음 — .ui 이름과 Main.py가 잘 맞아요.")
+            ok.setForeground(QColor("#2b8a3e"))
+            self.issue_list.addItem(ok)
+        self.bottom.setTabText(1, f"검사 ({len(issues)})" if issues else "검사 ✓")
+
+        # widgets never used in Main.py: dim them in the tree
+        if self.model is None:
+            return
+        for name, item in getattr(self, "_items", {}).items():
+            node = self.model.nodes.get(name)
+            if node is None or node.kind != "widget" or node is self.model.top \
+                    or node.cls in _CONTAINERS:
+                continue
+            used = f"self.{name}" in text
+            f = item.font(0)
+            f.setItalic(not used)
+            item.setFont(0, f)
+            item.setForeground(0, QColor("#202020" if used else "#a0a0a0"))
+            item.setToolTip(0, "" if used else "Main.py에서 아직 쓰지 않는 위젯")
+
+    # ---------------------------------------------------------- drag & drop
+    def dragEnterEvent(self, e):
+        if e.mimeData().hasUrls():
+            e.acceptProposedAction()
+
+    def dropEvent(self, e):
+        for url in e.mimeData().urls():
+            p = Path(url.toLocalFile())
+            if p.is_dir() or p.suffix.lower() in (".py", ".ui", ".pyw"):
+                self.open_path(p)
+                break
 
     def _out(self, text, color=None):
         cur = self.output.textCursor()

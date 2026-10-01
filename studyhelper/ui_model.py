@@ -10,7 +10,7 @@ from typing import Optional
 class UiNode:
     name: str
     cls: str
-    kind: str                       # 'widget' | 'layout' | 'action'
+    kind: str                       # 'widget' | 'layout' | 'action' | 'buttongroup'
     elem: ET.Element
     item: Optional[ET.Element]      # <item> wrapper when placed in a layout
     layout: Optional["UiNode"]      # layout that holds this node
@@ -35,6 +35,8 @@ class UiNode:
     def position_text(self) -> str:
         if self.kind == "action":
             return "메뉴/툴바에서 쓰는 QAction (화면 위치 없음)"
+        if self.kind == "buttongroup":
+            return "버튼 묶음 (화면 위치 없음, 속한 버튼은 attribute buttonGroup 으로 표시)"
         if self.layout is None:
             if self.parent is None:
                 return "최상위 창"
@@ -69,6 +71,10 @@ class UiModel:
         top = self.root_elem.find("widget")
         if top is not None:
             self.top = self._widget(top, None, None, None)
+        # Designer button groups: <buttongroups><buttongroup name="buttonGroup"/>
+        for bg in self.root_elem.findall("buttongroups/buttongroup"):
+            self.actions.append(self._add(UiNode(bg.get("name", ""), "QButtonGroup", "buttongroup",
+                                                 bg, None, None, None)))
 
     def _add(self, node: UiNode) -> UiNode:
         if node.name:

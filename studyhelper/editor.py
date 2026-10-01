@@ -10,6 +10,11 @@ from PyQt5.QtWidgets import QPlainTextEdit, QTextEdit, QToolTip, QWidget
 SELF_ATTR = re.compile(r"\bself\.(\w+)")
 
 
+class _Note:
+    def __init__(self, msg):
+        self.msg = msg
+
+
 def _fmt(color, bold=False, italic=False, underline=False):
     f = QTextCharFormat()
     f.setForeground(QColor(color))
@@ -87,10 +92,13 @@ class CodeEditor(QPlainTextEdit):
         self.tooltip_for = None          # callable(name) -> str
         self._hover = None
         self._marked = None
+        self._mark_sels = []
+        self.issues = []                 # checker.Issue list
+        self.error = None                # (block_no, message) from the last run
         self._line_area = _LineArea(self)
         self.blockCountChanged.connect(lambda _: self._update_margin())
         self.updateRequest.connect(self._on_update_request)
-        self.textChanged.connect(lambda: self.mark(self._marked))
+        self.textChanged.connect(self._on_text_changed)
         self._update_margin()
         self.viewport().setMouseTracking(True)
 
@@ -112,8 +120,27 @@ class CodeEditor(QPlainTextEdit):
                 return m.group(1)
         return None
 
+    def _on_text_changed(self):
+        self.error = None                # the code changed; the old crash line is stale
+        self.mark(self._marked)
+
+    def issue_at(self, pos):
+        cur = self.cursorForPosition(pos)
+        b, col = cur.blockNumber(), cur.positionInBlock()
+        for x in self.issues:
+            if x.line == b and x.start <= col <= max(x.end, x.start + 1):
+                return x
+        if self.error and self.error[0] == b:
+            return _Note(f"실행 중 에러난 줄: {self.error[1]}")
+        return None
+
     def mouseMoveEvent(self, e):
         super().mouseMoveEvent(e)
+        issue = self.issue_at(e.pos())
+        if issue is not None:
+            QToolTip.showText(e.globalPos(), issue.msg, self.viewport())
+            self._hover = None
+            return
         name = self.name_at(e.pos())
         if name and name != self._hover:
             self.nameHovered.emit(name)
@@ -136,6 +163,39 @@ class CodeEditor(QPlainTextEdit):
             block = block.next()
         return out
 
+    def set_issues(self, issues):
+        self.issues = issues
+        self._apply()
+
+    def set_error(self, block_no, msg):
+        self.error = (block_no, msg)
+        self._apply()
+
+    def _apply(self):
+        sels = list(self._mark_sels)
+        if self.error:
+            block = self.document().findBlockByNumber(self.error[0])
+            if block.isValid():
+                s = QTextEdit.ExtraSelection()
+                s.format.setBackground(QColor("#ffd9d9"))
+                s.format.setProperty(QTextFormat.FullWidthSelection, True)
+                s.cursor = QTextCursor(block)
+                sels.insert(0, s)
+        for x in self.issues:
+            block = self.document().findBlockByNumber(x.line)
+            if not block.isValid() or x.end <= x.start:
+                continue
+            s = QTextEdit.ExtraSelection()
+            s.format.setUnderlineStyle(QTextCharFormat.WaveUnderline)
+            s.format.setUnderlineColor(QColor("#e03131" if x.level == "error" else "#e8890c"))
+            c = QTextCursor(block)
+            c.setPosition(block.position() + min(x.start, block.length() - 1))
+            c.setPosition(block.position() + min(x.end, block.length() - 1), QTextCursor.KeepAnchor)
+            s.cursor = c
+            sels.append(s)
+        self.setExtraSelections(sels)
+        self._line_area.update()
+
     def mark(self, name):
         self._marked = name
         sels = []
@@ -157,8 +217,8 @@ class CodeEditor(QPlainTextEdit):
                     word.cursor = c
                     sels.append(word)
                 block = block.next()
-        self.setExtraSelections(sels)
-        self._line_area.update()
+        self._mark_sels = sels
+        self._apply()
 
     def go_to_line(self, block_no):
         block = self.document().findBlockByNumber(block_no)
@@ -199,12 +259,22 @@ class CodeEditor(QPlainTextEdit):
         p = QPainter(self._line_area)
         p.fillRect(e.rect(), QColor("#f3f3f3"))
         marked = set(self.occurrences(self._marked))
+        levels = {}
+        for x in self.issues:
+            if levels.get(x.line) != "error":
+                levels[x.line] = x.level
+        if self.error:
+            levels[self.error[0]] = "error"
         block = self.firstVisibleBlock()
         top = round(self.blockBoundingGeometry(block).translated(self.contentOffset()).top())
         h = self.fontMetrics().height()
         while block.isValid() and top <= e.rect().bottom():
             if block.isVisible():
                 n = block.blockNumber()
+                if n in levels:
+                    p.setPen(Qt.NoPen)
+                    p.setBrush(QColor("#e03131" if levels[n] == "error" else "#e8890c"))
+                    p.drawEllipse(3, top + h // 2 - 3, 6, 6)
                 p.setPen(QColor("#b8860b") if n in marked else QColor("#999999"))
                 p.drawText(0, top, self._line_area.width() - 6, h, Qt.AlignRight, str(n + 1))
             top += round(self.blockBoundingRect(block).height())

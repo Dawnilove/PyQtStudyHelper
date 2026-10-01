@@ -127,3 +127,39 @@ def main_py_in(folder) -> Path | None:
         if py:
             return py
     return None
+
+
+def import_mismatch(py_path) -> tuple[int, str] | None:
+    """(0-based line, message) when pyuic converts one .ui but the code imports another module.
+
+    e.g. GUI_FILE_NAME = 'gui_sol' (converts gui_sol.ui) but `from gui import Ui_MainWindow`.
+    """
+    py = Path(py_path).resolve()
+    src = read_text(py)[0]
+    try:
+        tree = ast.parse(src)
+    except SyntaxError:
+        return None
+    consts = {}
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Assign) and isinstance(n.value, ast.Constant) \
+                and isinstance(n.value.value, str):
+            for t in n.targets:
+                if isinstance(t, ast.Name):
+                    consts[t.id] = n.value.value
+    converted = set()
+    for n in ast.walk(tree):
+        if isinstance(n, (ast.Constant, ast.JoinedStr, ast.BinOp)):
+            s = _resolve(n, consts)
+            if s and s.lower().endswith(".ui"):
+                converted.add(Path(s).stem)
+    if not converted:
+        return None
+    for n in ast.walk(tree):
+        if isinstance(n, ast.ImportFrom) and n.module and n.level == 0 \
+                and (py.parent / f"{n.module}.ui").exists() and n.module not in converted:
+            conv = ", ".join(sorted(f"{c}.ui" for c in converted))
+            return (n.lineno - 1,
+                    f"pyuic로 변환하는 건 {conv} 인데 import하는 건 '{n.module}' 예요 → "
+                    f"{n.module}.ui 를 고쳐도 {n.module}.py 가 다시 만들어지지 않아요.")
+    return None
