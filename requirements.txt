@@ -1,4 +1,5 @@
 PyQt5>=5.15
-anthropic>=1.11   # AI 해설 (선택)
-keyring           # API 키를 Windows 자격 증명 관리자에 저장
-PyQt5Designer     # 선택: "Designer에서 열기" 버튼용
+keyring            # stores API keys in Windows Credential Manager
+google-genai       # AI: Gemini (free tier)
+openai             # AI: GPT, and local Ollama
+anthropic>=1.11    # AI: Claude

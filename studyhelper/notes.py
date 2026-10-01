@@ -76,6 +76,9 @@ def label(vault: Path, hit: Hit) -> str:
 
 
 def obsidian_url(vault: Path, hit: Hit) -> str:
+    """obsidian:// link when the folder is an Obsidian vault, else a plain file link."""
+    if not (vault / ".obsidian").is_dir():
+        return hit.path.resolve().as_uri()
     rel = hit.path.relative_to(vault).with_suffix("").as_posix()
     target = f"{rel}#{hit.heading}" if hit.heading else rel
     return f"obsidian://open?vault={quote(vault.name)}&file={quote(target)}"

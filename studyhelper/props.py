@@ -209,11 +209,16 @@ class PropertyPanel(QWidget):
             it.setData(Qt.UserRole, notes.obsidian_url(self.vault, h))
             it.setToolTip(str(h.path))
             self.notes.addItem(it)
-        if not hits:
-            it = QListWidgetItem("(관련 노트 없음)" if self.vault else "(Obsidian 볼트를 찾지 못했어요)")
+        if not self.vault:
+            it = QListWidgetItem("📂 노트 폴더가 아직 연결되지 않았어요 — 여기를 더블클릭해서 연결하기")
+            it.setData(Qt.UserRole, "connect")
+            it.setToolTip("내 Obsidian 볼트(또는 .md 노트 폴더)를 고르면, 위젯이 나오는 노트를 찾아 줘요")
+            self.notes.addItem(it)
+        elif not hits:
+            it = QListWidgetItem(f"(연결한 노트 폴더에 {node.cls} 가 나오는 노트가 없어요)")
             it.setFlags(Qt.NoItemFlags)
             self.notes.addItem(it)
         else:
-            self.notes.insertItem(0, QListWidgetItem(f"{node.cls} 가 나오는 내 강의노트 — 더블클릭하면 Obsidian에서 열려요"))
+            self.notes.insertItem(0, QListWidgetItem(f"{node.cls} 가 나오는 내 노트 — 더블클릭하면 열려요"))
             self.notes.item(0).setFlags(Qt.NoItemFlags)
         self.tabs.setTabText(self.tabs.indexOf(self.notes), f"내 노트 ({len(hits)})" if hits else "내 노트")

@@ -143,12 +143,14 @@ class MainWindow(QMainWindow):
         self.a_explain = A("AI에게 설명 듣기", self.ai_explain, "Ctrl+E", None,
                            "선택한 줄(없으면 현재 줄)을 AI가 설명 (Ctrl+E)")
         self.a_review = A("AI 코드 리뷰", self.ai_review, "Ctrl+Shift+R", None, "Main.py 전체 리뷰")
-        self.a_ai_settings = A("API 키·모델 설정…", self.ai_settings)
+        self.a_ai_settings = A("AI 모델·키 설정…", self.ai_settings)
         self.a_zoom_in = A("글자 크게", lambda: self.zoom(1), QKeySequence.ZoomIn)
         self.a_zoom_out = A("글자 작게", lambda: self.zoom(-1), QKeySequence.ZoomOut)
         self.a_zoom_reset = A("글자 크기 원래대로", lambda: self.zoom(0), "Ctrl+0")
         self.a_reset_layout = A("화면 배치 초기화", self.reset_layout)
-        self.a_vault = A("강의노트(Obsidian 볼트) 폴더 지정…", self.choose_vault)
+        self.a_vault = A("내 노트 폴더 연결…", self.choose_vault, None, None,
+                         "내 Obsidian 볼트(또는 .md 노트 폴더)를 연결하면 위젯·코드에 맞는 노트를 찾아 줘요")
+        self.a_vault_off = A("내 노트 폴더 연결 해제", self.disconnect_vault)
         self.a_legend = A("색 범례 보기", self.toggle_legend)
         self.a_legend.setCheckable(True)
         self.a_help = A("사용법", self.show_help, "F1")
@@ -177,6 +179,7 @@ class MainWindow(QMainWindow):
         m.addAction(self.a_legend)
         m.addAction(self.a_reset_layout)
         m.addAction(self.a_vault)
+        m.addAction(self.a_vault_off)
         m = mb.addMenu("도움말(&H)")
         m.addAction(self.a_help)
 
@@ -281,6 +284,10 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(self.stack)
         self.stack.currentChanged.connect(self._on_page_changed)
         self._on_page_changed(0)
+
+        v = self.settings.value("vault", "")
+        self.panel.vault = self.line_view.vault = Path(v) if v and Path(v).is_dir() else None
+        self.a_vault_off.setEnabled(self.panel.vault is not None)
 
         show_legend = self.settings.value("view/legend", True) not in (False, "false")
         self.a_legend.setChecked(show_legend)
@@ -478,8 +485,10 @@ class MainWindow(QMainWindow):
     def ai_settings(self):
         if AiSettingsDialog(self).exec_():
             self._update_ai_status()
-            if not self.ai_panel.messages:
+            if not self.ai_panel.history:
                 self.ai_panel.show_welcome()
+            else:
+                self.ai_panel.b_model.setText(f"모델: {ai.get_model().replace('ollama:', '')}  ⚙")
 
     # ------------------------------------------------- signal helper / .ui edit
     def insert_signal(self, widget, sig, all_sigs):
@@ -517,28 +526,42 @@ class MainWindow(QMainWindow):
         self.settings.setValue("view/legend", on)
 
     def choose_vault(self):
-        d = QFileDialog.getExistingDirectory(self, "Obsidian 볼트 폴더 (.obsidian 이 있는 폴더)",
+        d = QFileDialog.getExistingDirectory(self, "내 노트 폴더 고르기 (Obsidian 볼트 또는 .md 노트가 있는 폴더)",
                                              self.settings.value("vault", ""))
         if not d:
             return
         v = notes.find_vault(d) or Path(d)
-        self.settings.setValue("vault", str(v))
+        n = sum(1 for _ in v.rglob("*.md"))
+        if n == 0:
+            QMessageBox.warning(self, "내 노트", f"{v} 안에 .md 노트가 없어요. 다른 폴더를 골라 주세요.")
+            return
+        self._set_vault(v)
+        kind = "Obsidian 볼트" if (v / ".obsidian").is_dir() else "노트 폴더"
+        self._status(f"{kind} 연결: {v} (노트 {n}개)", 10000)
+
+    def disconnect_vault(self):
+        self._set_vault(None)
+        self._status("내 노트 폴더 연결을 해제했어요.")
+
+    def _set_vault(self, v):
+        self.settings.setValue("vault", str(v) if v else "")
         self.panel.vault = self.line_view.vault = v
-        self._status(f"강의노트 폴더: {v}")
+        self.line_view._last = None
+        self.a_vault_off.setEnabled(v is not None)
         if self.sel:
             self.select(self.sel, "reload")
+        self._on_cursor_moved()
 
     def open_note(self, url):
-        if url.startswith("obsidian://"):
+        if url == "connect":
+            self.choose_vault()
+        elif url.startswith(("obsidian://", "file:")):
             QDesktopServices.openUrl(QUrl.fromEncoded(url.encode()))
 
     def _update_ai_status(self):
-        if not ai.available():
-            self.ai_status.setText("AI: 패키지 없음")
-        elif ai.get_key():
-            self.ai_status.setText(f"AI: {ai.get_model()}")
-        else:
-            self.ai_status.setText("AI: 키 없음 (AI 메뉴 → 설정)")
+        m = ai.get_model()
+        self.ai_status.setText(f"AI: {m.replace('ollama:', '내 PC ')}" if ai.ready(m)
+                               else "AI: 설정 필요 (AI 메뉴 → 모델·키 설정)")
 
     def _update_title(self):
         name = self.py_path.name if self.py_path else "파일 없음"
@@ -580,10 +603,6 @@ class MainWindow(QMainWindow):
             return False
 
         self.py_path = p
-        vault = notes.find_vault(p) or (Path(self.settings.value("vault", "")) if self.settings.value("vault") else None)
-        if vault and vault.is_dir():
-            self.settings.setValue("vault", str(vault))
-        self.panel.vault = self.line_view.vault = vault if vault and vault.is_dir() else None
         self._mismatch = import_mismatch(p)
         text, self.encoding, self.crlf = read_text(p)
         self.editor.setPlainText(text)

@@ -1,16 +1,42 @@
-"""AI 해설 / 코드 리뷰 (Claude API). The user's own API key lives in Windows Credential Manager."""
+"""AI 해설 / 코드 리뷰: Claude, GPT, Gemini, 내 PC의 Ollama.
+
+Keys are the user's own and live in Windows Credential Manager (keyring), one per provider.
+"""
+import json
 import os
+import urllib.request
 
 from PyQt5.QtCore import QSettings, QThread, pyqtSignal
 
 SERVICE = "PyQtStudyHelper"
+OLLAMA_URL = "http://localhost:11434"
+
+PROVIDERS = {
+    "claude": dict(name="Claude (Anthropic)", key_name="api_key", env=("ANTHROPIC_API_KEY",),
+                   key_page="https://console.anthropic.com/settings/keys", package="anthropic",
+                   hint="sk-ant-..."),
+    "openai": dict(name="GPT (OpenAI)", key_name="openai_key", env=("OPENAI_API_KEY",),
+                   key_page="https://platform.openai.com/api-keys", package="openai", hint="sk-..."),
+    "gemini": dict(name="Gemini (Google)", key_name="gemini_key", env=("GEMINI_API_KEY", "GOOGLE_API_KEY"),
+                   key_page="https://aistudio.google.com/apikey", package="google.genai", hint="AIza..."),
+    "ollama": dict(name="내 PC (Ollama)", key_name=None, env=(), key_page="https://ollama.com/download",
+                   package="openai", hint=""),
+}
+
+# (model id, label, provider, free?)  — checked against each provider's model docs, 2026-10
 MODELS = [
-    ("claude-opus-5-5", "Claude Opus 5.5 — 가장 정확 (기본)"),
-    ("claude-sonnet-5-5", "Claude Sonnet 5.5 — 빠르고 더 저렴"),
-    ("claude-haiku-4-5", "Claude Haiku 4.5 — 가장 빠르고 저렴"),
+    ("gemini-3.8-flash", "Gemini 3.8 Flash — 무료 티어 · 빠르고 똑똑함 (추천)", "gemini", True),
+    ("gemini-3.5-flash-lite", "Gemini 3.5 Flash-Lite — 무료 티어 · 가장 빠름", "gemini", True),
+    ("gemini-3.1-pro-preview", "Gemini 3.1 Pro (미리보기) — 유료", "gemini", False),
+    ("claude-opus-5-5", "Claude Opus 5.5 — 가장 정확", "claude", False),
+    ("claude-sonnet-5-5", "Claude Sonnet 5.5 — 빠르고 더 저렴", "claude", False),
+    ("claude-haiku-4-5", "Claude Haiku 4.5 — 가장 빠르고 저렴", "claude", False),
+    ("gpt-6-astra", "GPT-6 Astra — OpenAI 최고 성능 · 비쌈", "openai", False),
+    ("gpt-6.1-sol", "GPT-6.1 Sol — 성능·가격 균형", "openai", False),
+    ("gpt-6-luna", "GPT-6 Luna — 아주 저렴", "openai", False),
 ]
-DEFAULT_MODEL = MODELS[0][0]
-KEY_PAGE = "https://console.anthropic.com/settings/keys"
+DEFAULT_MODEL = "gemini-3.8-flash"
+OLLAMA_SUGGEST = "qwen3:8b"
 
 SYSTEM = """당신은 PyQt5를 처음 배우는 학생을 돕는 친절한 튜터입니다.
 학생은 Qt Designer로 만든 .ui 파일을 pyuic로 변환해 Main.py에서 상속해 쓰는 방식으로 배우고 있습니다.
@@ -36,133 +62,278 @@ REVIEW_TASK = """Main.py 전체를 초보자 눈높이로 코드 리뷰해 주�
 문제가 없으면 억지로 만들지 말고 없다고 말해 주세요."""
 
 
-# ---------------------------------------------------------------- key storage
-def get_key() -> str:
-    env = os.environ.get("ANTHROPIC_API_KEY", "").strip()
-    if env:
-        return env
+# ------------------------------------------------------------------ models
+def provider_of(model: str) -> str:
+    for mid, _, prov, _ in MODELS:
+        if mid == model:
+            return prov
+    if model.startswith("ollama:"):
+        return "ollama"
+    if model.startswith("claude"):
+        return "claude"
+    if model.startswith("gemini"):
+        return "gemini"
+    return "openai"                     # gpt-*, o* and other custom ids
+
+
+def label_of(model: str) -> str:
+    for mid, label, _, _ in MODELS:
+        if mid == model:
+            return label
+    if model.startswith("ollama:"):
+        return f"{model[7:]} — 내 PC · 완전 무료"
+    return model
+
+
+def ollama_models() -> list[str]:
+    """Models installed in a running Ollama (empty when Ollama isn't running)."""
     try:
-        import keyring
-        return keyring.get_password(SERVICE, "api_key") or ""
+        with urllib.request.urlopen(f"{OLLAMA_URL}/api/tags", timeout=1) as r:
+            return [m["name"] for m in json.load(r).get("models", [])]
     except Exception:
-        return QSettings(SERVICE, SERVICE).value("ai/key_fallback", "") or ""
+        return []
 
 
-def key_source() -> str:
-    if os.environ.get("ANTHROPIC_API_KEY", "").strip():
-        return "환경변수 ANTHROPIC_API_KEY"
-    return "Windows 자격 증명 관리자"
-
-
-def set_key(key: str):
-    key = key.strip()
+# ---------------------------------------------------------------- key storage
+def _keyring():
     try:
         import keyring
-        if key:
-            keyring.set_password(SERVICE, "api_key", key)
-        else:
-            try:
-                keyring.delete_password(SERVICE, "api_key")
-            except Exception:
-                pass
-    except Exception:  # keyring unavailable: fall back to per-user settings
-        QSettings(SERVICE, SERVICE).setValue("ai/key_fallback", key)
+        return keyring
+    except Exception:
+        return None
+
+
+def get_key(provider: str) -> str:
+    p = PROVIDERS[provider]
+    if p["key_name"] is None:
+        return "local"
+    for e in p["env"]:
+        if os.environ.get(e, "").strip():
+            return os.environ[e].strip()
+    kr = _keyring()
+    if kr:
+        try:
+            return kr.get_password(SERVICE, p["key_name"]) or ""
+        except Exception:
+            pass
+    return QSettings(SERVICE, SERVICE).value(f"ai/{p['key_name']}", "") or ""
+
+
+def key_source(provider: str) -> str:
+    for e in PROVIDERS[provider]["env"]:
+        if os.environ.get(e, "").strip():
+            return f"환경변수 {e}"
+    return "Windows 자격 증명 관리자" if _keyring() else "이 PC의 사용자 설정"
+
+
+def set_key(provider: str, key: str):
+    name = PROVIDERS[provider]["key_name"]
+    if name is None:
+        return
+    key = key.strip()
+    kr = _keyring()
+    if kr:
+        try:
+            if key:
+                kr.set_password(SERVICE, name, key)
+            else:
+                try:
+                    kr.delete_password(SERVICE, name)
+                except Exception:
+                    pass
+            return
+        except Exception:
+            pass
+    QSettings(SERVICE, SERVICE).setValue(f"ai/{name}", key)
 
 
 def get_model() -> str:
-    m = QSettings(SERVICE, SERVICE).value("ai/model", DEFAULT_MODEL)
-    return m if m in dict(MODELS) else DEFAULT_MODEL
+    return QSettings(SERVICE, SERVICE).value("ai/model", DEFAULT_MODEL) or DEFAULT_MODEL
 
 
 def set_model(model: str):
-    QSettings(SERVICE, SERVICE).setValue("ai/model", model)
+    QSettings(SERVICE, SERVICE).setValue("ai/model", model.strip())
 
 
-def available() -> bool:
+def package_ok(provider: str) -> bool:
     try:
-        import anthropic  # noqa: F401
+        __import__(PROVIDERS[provider]["package"])
         return True
     except ImportError:
         return False
 
 
-def friendly_error(e: Exception) -> str:
-    import anthropic
-    if isinstance(e, anthropic.AuthenticationError):
-        return "API 키가 올바르지 않아요. 설정에서 키를 다시 확인해 주세요."
-    if isinstance(e, anthropic.PermissionDeniedError):
-        return "이 API 키로는 이 모델을 쓸 권한이 없어요. 다른 모델을 골라 보세요."
-    if isinstance(e, anthropic.NotFoundError):
-        return "모델을 찾지 못했어요. 설정에서 다른 모델을 골라 보세요."
-    if isinstance(e, anthropic.RateLimitError):
-        return "요청이 너무 많아요. 잠시 뒤에 다시 시도해 주세요."
-    if isinstance(e, anthropic.BadRequestError):
-        msg = getattr(e, "message", str(e))
-        if "credit" in msg.lower() or "balance" in msg.lower():
-            return "API 크레딧(잔액)이 부족해요. Anthropic 콘솔의 Billing에서 충전해 주세요."
-        return f"요청이 거절됐어요: {msg}"
-    if isinstance(e, anthropic.APIStatusError):
-        if e.status_code >= 500:
-            return f"Anthropic 서버 오류({e.status_code})예요. 잠시 뒤에 다시 시도해 주세요."
-        return f"API 오류({e.status_code}): {getattr(e, 'message', e)}"
-    if isinstance(e, anthropic.APIConnectionError):
+def ready(model: str | None = None) -> bool:
+    model = model or get_model()
+    prov = provider_of(model)
+    return package_ok(prov) and bool(get_key(prov))
+
+
+# ------------------------------------------------------------------ errors
+def friendly_error(provider: str, e: Exception) -> str:
+    if type(e) is RuntimeError:          # our own, already friendly
+        return str(e)
+    name = type(e).__name__
+    msg = str(getattr(e, "message", "") or e)
+    low = msg.lower()
+    status = getattr(e, "status_code", None) or getattr(e, "code", None)
+    if provider == "ollama" and ("connect" in name.lower() or "connection" in low):
+        return ("Ollama가 실행 중이 아니에요. ollama.com 에서 설치한 뒤, 명령창에서 "
+                f"`ollama pull {OLLAMA_SUGGEST}` 로 모델을 받아 주세요.")
+    if name in ("APIConnectionError", "ConnectError", "ConnectTimeout") or "connection" in name.lower():
         return "인터넷에 연결할 수 없어요. 네트워크를 확인해 주세요."
-    return f"{type(e).__name__}: {e}"
+    if status == 401 or name == "AuthenticationError" or "api_key_invalid" in low or "api key not valid" in low:
+        return "API 키가 올바르지 않아요. 설정에서 키를 다시 확인해 주세요."
+    if status == 403 or name == "PermissionDeniedError":
+        return "이 키로는 이 모델을 쓸 권한이 없어요. 다른 모델을 골라 보세요."
+    if status == 404 or name == "NotFoundError":
+        if provider == "ollama":
+            return f"내 PC에 그 모델이 없어요. 명령창에서 `ollama pull {OLLAMA_SUGGEST}` 처럼 받아 주세요."
+        return "모델을 찾지 못했어요. 설정에서 다른 모델을 골라 보세요."
+    if status == 429 or name == "RateLimitError":
+        if "quota" in low or "billing" in low or "credit" in low:
+            if provider == "gemini":
+                return "무료 사용량을 다 썼어요(분당/하루 한도). 잠시 뒤에 하거나 내일 다시 시도해 주세요."
+            return "API 크레딧(잔액)이 부족해요. 결제 페이지에서 충전해 주세요."
+        return "요청이 너무 많아요. 잠시 뒤에 다시 시도해 주세요."
+    if "credit" in low or "balance" in low or "billing" in low:
+        return "API 크레딧(잔액)이 부족해요. 결제 페이지에서 충전해 주세요."
+    if isinstance(status, int) and status >= 500:
+        return f"AI 서버 오류({status})예요. 잠시 뒤에 다시 시도해 주세요."
+    if isinstance(status, int) and status >= 400:
+        return f"요청이 거절됐어요 ({status}): {msg[:300]}"
+    return f"{name}: {msg[:300]}"
 
 
-def test_key(key: str, model: str) -> str | None:
-    """None when the key works, otherwise a friendly error. Costs no tokens."""
+def test_key(model: str, key: str) -> str | None:
+    """None when the key + model work. Costs no tokens."""
+    prov = provider_of(model)
     try:
-        import anthropic
-        anthropic.Anthropic(api_key=key, max_retries=0, timeout=15).models.retrieve(model)
+        if prov == "claude":
+            import anthropic
+            anthropic.Anthropic(api_key=key, max_retries=0, timeout=15).models.retrieve(model)
+        elif prov == "openai":
+            from openai import OpenAI
+            OpenAI(api_key=key, max_retries=0, timeout=15).models.retrieve(model)
+        elif prov == "gemini":
+            from google import genai
+            client = genai.Client(api_key=key)          # keep a reference: a dropped client closes itself
+            client.models.get(model=model)
+        else:
+            names = ollama_models()
+            if not names and not _ollama_running():
+                return friendly_error("ollama", ConnectionError("connection refused"))
+            if model[7:] not in names:
+                return f"내 PC에 '{model[7:]}' 모델이 없어요. 명령창: ollama pull {model[7:]}"
         return None
+    except ImportError:
+        return f"{PROVIDERS[prov]['package']} 패키지가 없어요. install.bat 을 다시 실행해 주세요."
     except Exception as e:
-        return friendly_error(e)
+        return friendly_error(prov, e)
 
 
-def request_kwargs(model: str) -> dict:
-    kw = dict(model=model, max_tokens=16000, system=SYSTEM,
-              cache_control={"type": "ephemeral"})          # follow-up questions reuse the cached code
-    if model != "claude-haiku-4-5":
-        kw["output_config"] = {"effort": "medium"}
-        # if a safety classifier declines, retry on Anthropic's recommended fallback model
-        kw["betas"] = ["server-side-fallback-2026-07-01"]
-        kw["fallbacks"] = "default"
-    return kw
+def _ollama_running() -> bool:
+    try:
+        urllib.request.urlopen(OLLAMA_URL, timeout=1)
+        return True
+    except Exception:
+        return False
 
 
 # ------------------------------------------------------------------- worker
 class AiWorker(QThread):
+    """Streams one answer. `history`: [{'role': 'user'|'assistant', 'content': str, 'raw': ...}]"""
     chunk = pyqtSignal(str)
-    done = pyqtSignal(object)        # assistant content blocks (to keep the conversation)
+    done = pyqtSignal(str, object)   # full text, provider-specific raw content (Claude blocks)
     failed = pyqtSignal(str)
 
-    def __init__(self, key, model, messages, parent=None):
+    def __init__(self, model, history, parent=None):
         super().__init__(parent)
-        self.key, self.model, self.messages = key, model, messages
+        self.model, self.history = model, history
+        self.provider = provider_of(model)
         self._stop = False
+        self._text = ""
 
     def stop(self):
         self._stop = True
 
+    def _emit(self, t):
+        if t:
+            self._text += t
+            self.chunk.emit(t)
+
     def run(self):
         try:
-            import anthropic
-            client = anthropic.Anthropic(api_key=self.key)
-            with client.beta.messages.stream(messages=self.messages,
-                                             **request_kwargs(self.model)) as stream:
-                for event in stream:
-                    if self._stop:
-                        return
-                    if event.type == "content_block_delta" and event.delta.type == "text_delta":
-                        self.chunk.emit(event.delta.text)
-                final = stream.get_final_message()
-            if final.stop_reason == "refusal":
-                self.failed.emit("이 요청에는 답할 수 없다는 응답을 받았어요. 질문을 바꿔서 다시 시도해 보세요.")
-                return
-            if final.stop_reason == "max_tokens":
-                self.chunk.emit("\n\n*(답변이 길어 여기서 잘렸어요. '이어서 설명해 줘'라고 질문해 보세요.)*")
-            self.done.emit(final.content)
+            raw = getattr(self, f"_run_{self.provider}")()
+            if not self._stop:
+                self.done.emit(self._text, raw)
         except Exception as e:
             if not self._stop:
-                self.failed.emit(friendly_error(e))
+                self.failed.emit(friendly_error(self.provider, e))
+
+    # --- Claude -------------------------------------------------------------
+    def _run_claude(self):
+        import anthropic
+        client = anthropic.Anthropic(api_key=get_key("claude"))
+        messages = [{"role": m["role"], "content": m.get("raw") or m["content"]} for m in self.history]
+        kw = dict(model=self.model, max_tokens=16000, system=SYSTEM, messages=messages,
+                  cache_control={"type": "ephemeral"})   # follow-up questions reuse the cached code
+        if self.model != "claude-haiku-4-5":
+            kw["output_config"] = {"effort": "medium"}
+            # if a safety classifier declines, retry on Anthropic's recommended fallback model
+            kw["betas"] = ["server-side-fallback-2026-07-01"]
+            kw["fallbacks"] = "default"
+        with client.beta.messages.stream(**kw) as stream:
+            for event in stream:
+                if self._stop:
+                    return None
+                if event.type == "content_block_delta" and event.delta.type == "text_delta":
+                    self._emit(event.delta.text)
+            final = stream.get_final_message()
+        if final.stop_reason == "refusal":
+            raise RuntimeError("이 요청에는 답할 수 없다는 응답을 받았어요. 질문을 바꿔 보세요.")
+        if final.stop_reason == "max_tokens":
+            self._emit("\n\n*(답변이 길어 잘렸어요. '이어서 설명해 줘'라고 질문해 보세요.)*")
+        return final.content          # keep blocks as-is for the next turn
+
+    # --- OpenAI (Responses API) ---------------------------------------------------
+    def _run_openai(self):
+        from openai import OpenAI
+        client = OpenAI(api_key=get_key("openai"))
+        inp = [{"role": m["role"], "content": m["content"]} for m in self.history]
+        with client.responses.stream(model=self.model, instructions=SYSTEM, input=inp) as stream:
+            for event in stream:
+                if self._stop:
+                    return None
+                if event.type == "response.output_text.delta":
+                    self._emit(event.delta)
+        return None
+
+    # --- Gemini ------------------------------------------------------------------
+    def _run_gemini(self):
+        from google import genai
+        from google.genai import types
+        client = genai.Client(api_key=get_key("gemini"))
+        contents = [types.Content(role="model" if m["role"] == "assistant" else "user",
+                                  parts=[types.Part(text=m["content"])]) for m in self.history]
+        cfg = types.GenerateContentConfig(
+            system_instruction=SYSTEM,
+            automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True))
+        for ch in client.models.generate_content_stream(model=self.model, contents=contents, config=cfg):
+            if self._stop:
+                return None
+            self._emit(ch.text or "")
+        return None
+
+    # --- Ollama (local, OpenAI-compatible endpoint) --------------------------------
+    def _run_ollama(self):
+        from openai import OpenAI
+        client = OpenAI(base_url=f"{OLLAMA_URL}/v1", api_key="ollama", timeout=600)
+        msgs = [{"role": "system", "content": SYSTEM}] + \
+               [{"role": m["role"], "content": m["content"]} for m in self.history]
+        for ch in client.chat.completions.create(model=self.model[7:], messages=msgs, stream=True):
+            if self._stop:
+                return None
+            if ch.choices and ch.choices[0].delta.content:
+                self._emit(ch.choices[0].delta.content)
+        return None

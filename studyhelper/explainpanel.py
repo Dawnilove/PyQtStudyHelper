@@ -3,7 +3,7 @@ from html import escape
 
 from PyQt5.QtCore import Qt, QTimer, QUrl, pyqtSignal
 from PyQt5.QtGui import QDesktopServices
-from PyQt5.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout,
+from PyQt5.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
                              QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton,
                              QTextBrowser, QVBoxLayout, QWidget)
 
@@ -64,38 +64,43 @@ class AiSettingsDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("AI 해설 설정")
-        self.setMinimumWidth(520)
+        self.setMinimumWidth(600)
         lay = QVBoxLayout(self)
+        lay.addWidget(QLabel("<b>1. 쓸 AI 모델 고르기</b> "
+                             "<span style='color:#888'>(목록에 없는 최신 모델 이름은 직접 입력해도 돼요)</span>"))
+        self.model = QComboBox()
+        self.model.setEditable(True)
+        self.model.setInsertPolicy(QComboBox.NoInsert)
+        self._fill_models()
+        self.model.currentIndexChanged.connect(lambda _: self._on_model())
+        self.model.lineEdit().editingFinished.connect(self._on_model)
+        lay.addWidget(self.model)
+        self.free_note = QLabel()
+        self.free_note.setWordWrap(True)
+        self.free_note.setOpenExternalLinks(True)
+        lay.addWidget(self.free_note)
 
-        intro = QLabel(
-            "AI 해설은 Anthropic의 Claude API를 써요. <b>내 API 키</b>를 한 번만 넣으면 돼요.<br>"
-            f"키 발급: <a href='{ai.KEY_PAGE}'>Anthropic 콘솔 → API Keys</a> "
-            "(사용한 만큼 요금이 나가요)")
-        intro.setOpenExternalLinks(True)
-        intro.setWordWrap(True)
-        lay.addWidget(intro)
-
-        form = QFormLayout()
-        row = QHBoxLayout()
-        self.key = QLineEdit(ai.get_key())
+        lay.addSpacing(8)
+        self.key_title = QLabel()
+        lay.addWidget(self.key_title)
+        self.key_row = QWidget()
+        row = QHBoxLayout(self.key_row)
+        row.setContentsMargins(0, 0, 0, 0)
+        self.key = QLineEdit()
         self.key.setEchoMode(QLineEdit.Password)
-        self.key.setPlaceholderText("sk-ant-...")
         self.key.setClearButtonEnabled(True)
         row.addWidget(self.key, 1)
         show = QCheckBox("보기")
         show.toggled.connect(lambda on: self.key.setEchoMode(QLineEdit.Normal if on else QLineEdit.Password))
         row.addWidget(show)
         paste = QPushButton("붙여넣기")
-        paste.clicked.connect(self._paste)
+        paste.clicked.connect(lambda: self.key.setText(QApplication.clipboard().text().strip()))
         row.addWidget(paste)
-        form.addRow("API 키", row)
-
-        self.model = QComboBox()
-        for mid, label in ai.MODELS:
-            self.model.addItem(label, mid)
-        self.model.setCurrentIndex([m for m, _ in ai.MODELS].index(ai.get_model()))
-        form.addRow("모델", self.model)
-        lay.addLayout(form)
+        lay.addWidget(self.key_row)
+        self.key_help = QLabel()
+        self.key_help.setWordWrap(True)
+        self.key_help.setOpenExternalLinks(True)
+        lay.addWidget(self.key_help)
 
         test_row = QHBoxLayout()
         self.test_btn = QPushButton("연결 테스트")
@@ -106,41 +111,91 @@ class AiSettingsDialog(QDialog):
         test_row.addWidget(self.result, 1)
         lay.addLayout(test_row)
 
-        note = QLabel(f"<span style='color:#777'>키는 이 PC의 <b>{ai.key_source()}</b>에 저장돼요. "
-                      "파일이나 저장소에는 남지 않아요.</span>")
-        note.setWordWrap(True)
-        lay.addWidget(note)
-
         btns = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
         btns.button(QDialogButtonBox.Save).setText("저장")
         btns.button(QDialogButtonBox.Cancel).setText("취소")
-        delete = btns.addButton("키 삭제", QDialogButtonBox.DestructiveRole)
-        delete.clicked.connect(self._delete)
+        self.delete_btn = btns.addButton("이 키 삭제", QDialogButtonBox.DestructiveRole)
+        self.delete_btn.clicked.connect(self._delete)
         btns.accepted.connect(self._save)
         btns.rejected.connect(self.reject)
         lay.addWidget(btns)
-        if not ai.available():
-            self.result.setText("<span style='color:#c0392b'>anthropic 패키지가 없어요: "
-                                "pip install anthropic keyring</span>")
+        self._keys = {}            # provider -> key typed in this dialog
+        self._prov = None
+        self._on_model()
 
-    def _paste(self):
-        from PyQt5.QtWidgets import QApplication
-        self.key.setText(QApplication.clipboard().text().strip())
+    def _fill_models(self):
+        cur = ai.get_model()
+        self.model.clear()
+        groups = {}
+        for mid, label, prov, _ in ai.MODELS:
+            groups.setdefault(prov, []).append((mid, label))
+        local = ai.ollama_models()
+        groups["ollama"] = [(f"ollama:{n}", ai.label_of(f"ollama:{n}")) for n in local] or \
+                           [(f"ollama:{ai.OLLAMA_SUGGEST}", f"{ai.OLLAMA_SUGGEST} — 내 PC · 완전 무료 (Ollama 설치 필요)")]
+        for prov in ("gemini", "claude", "openai", "ollama"):
+            self.model.addItem(f"── {ai.PROVIDERS[prov]['name']} ──")
+            self.model.model().item(self.model.count() - 1).setEnabled(False)
+            for mid, label in groups.get(prov, []):
+                self.model.addItem(label, mid)
+        i = self.model.findData(cur)
+        if i >= 0:
+            self.model.setCurrentIndex(i)
+        else:
+            self.model.setEditText(cur)
+
+    def current_model(self) -> str:
+        i = self.model.currentIndex()
+        if i >= 0 and self.model.itemText(i) == self.model.currentText() and self.model.itemData(i):
+            return self.model.itemData(i)
+        return self.model.currentText().strip()      # typed custom model id
+
+    def _on_model(self):
+        if self._prov:
+            self._keys[self._prov] = self.key.text()
+        model = self.current_model()
+        prov = ai.provider_of(model)
+        self._prov = prov
+        p = ai.PROVIDERS[prov]
+        free = next((f for mid, _, _, f in ai.MODELS if mid == model), prov == "ollama")
+        notes_ = {
+            "gemini": ("Google AI Studio 키로 <b>무료 티어</b>를 쓸 수 있어요 (분당·하루 사용량 제한). "
+                       "무료 티어에서는 입력한 내용이 Google 제품 개선에 쓰일 수 있어요."
+                       if free else "이 모델은 유료예요 (Google 결제 설정 필요)."),
+            "claude": "Anthropic 콘솔에서 결제 후 키를 만들어요. 사용한 만큼 요금이 나가요.",
+            "openai": "OpenAI 플랫폼에서 결제 후 키를 만들어요. 사용한 만큼 요금이 나가요.",
+            "ollama": ("<b>완전 무료 · 인터넷 없이</b> 내 PC에서 돌아가요. "
+                       f"<a href='{p['key_page']}'>Ollama 설치</a> → 명령창에서 "
+                       f"<code>ollama pull {ai.OLLAMA_SUGGEST}</code> (약 5GB). "
+                       "PC 성능에 따라 느릴 수 있고, 답의 품질은 클라우드 모델보다 낮을 수 있어요."),
+        }
+        self.free_note.setText(f"<span style='color:#555'>{notes_[prov]}</span>")
+        is_local = prov == "ollama"
+        self.key_row.setVisible(not is_local)
+        self.delete_btn.setVisible(not is_local)
+        self.key_title.setText("<b>2. 연결 확인</b>" if is_local else f"<b>2. {p['name']} API 키</b>")
+        self.key.setPlaceholderText(p["hint"])
+        self.key.setText(self._keys.get(prov, ai.get_key(prov) if not is_local else ""))
+        self.key_help.setText("" if is_local else
+                              f"<span style='color:#777'>키 발급: <a href='{p['key_page']}'>{p['key_page']}</a><br>"
+                              f"키는 이 PC의 <b>{ai.key_source(prov)}</b>에 저장돼요. 파일이나 저장소에는 남지 않아요.</span>")
+        if not ai.package_ok(prov):
+            self.result.setText(f"<span style='color:#c0392b'>{p['package']} 패키지가 없어요. "
+                                "install.bat 을 다시 실행해 주세요.</span>")
+        else:
+            self.result.setText("")
 
     def _test(self):
-        k = self.key.text().strip()
-        if not k:
+        model = self.current_model()
+        key = self.key.text().strip() if self._prov != "ollama" else "local"
+        if not key:
             self.result.setText("<span style='color:#c0392b'>키를 먼저 넣어 주세요.</span>")
             return
         self.result.setText("확인 중…")
         self.test_btn.setEnabled(False)
-        QTimer.singleShot(0, lambda: self._do_test(k))
-
-    def _do_test(self, k):
-        from PyQt5.QtWidgets import QApplication
         QApplication.setOverrideCursor(Qt.WaitCursor)
+        QApplication.processEvents()
         try:
-            err = ai.test_key(k, self.model.currentData())
+            err = ai.test_key(model, key)
         finally:
             QApplication.restoreOverrideCursor()
             self.test_btn.setEnabled(True)
@@ -148,13 +203,21 @@ class AiSettingsDialog(QDialog):
                             else f"<span style='color:#c0392b'>{escape(err)}</span>")
 
     def _save(self):
-        ai.set_key(self.key.text())
-        ai.set_model(self.model.currentData())
+        model = self.current_model()
+        if not model:
+            return
+        self._keys[self._prov] = self.key.text()
+        for prov, k in self._keys.items():
+            if prov != "ollama" and k.strip() != ai.get_key(prov):
+                ai.set_key(prov, k)
+        ai.set_model(model)
         self.accept()
 
     def _delete(self):
-        if QMessageBox.question(self, "키 삭제", "저장된 API 키를 지울까요?") == QMessageBox.Yes:
-            ai.set_key("")
+        p = ai.PROVIDERS[self._prov]
+        if QMessageBox.question(self, "키 삭제", f"저장된 {p['name']} 키를 지울까요?") == QMessageBox.Yes:
+            ai.set_key(self._prov, "")
+            self._keys[self._prov] = ""
             self.key.clear()
             self.result.setText("키를 지웠어요.")
 
@@ -179,13 +242,13 @@ class AiPanel(QWidget):
         self.b_stop = QPushButton("중지")
         self.b_stop.setEnabled(False)
         self.b_stop.clicked.connect(self.stop)
-        gear = QPushButton("설정")
-        gear.setToolTip("API 키와 모델 설정")
-        gear.clicked.connect(self.settingsRequested)
+        self.b_model = QPushButton()
+        self.b_model.setToolTip("AI 모델·API 키 설정")
+        self.b_model.clicked.connect(self.settingsRequested)
         for b in (self.b_explain, self.b_review, self.b_stop):
             top.addWidget(b)
         top.addStretch(1)
-        top.addWidget(gear)
+        top.addWidget(self.b_model)
         lay.addLayout(top)
 
         self.view = QTextBrowser()
@@ -202,28 +265,33 @@ class AiPanel(QWidget):
         ask.addWidget(self.b_ask)
         lay.addLayout(ask)
 
-        self.messages = []          # conversation sent to the API
-        self.transcript = ""        # markdown shown
+        self.history = []           # [{'role', 'content', 'raw'}]
+        self.conv_model = None      # follow-ups stay on the model the conversation started with
+        self.transcript = ""
         self.current = ""
         self.worker = None
         self._render_timer = QTimer(self, singleShot=True, interval=80, timeout=self._render)
         self.show_welcome()
 
+    @property
+    def messages(self):
+        return self.history
+
     # --- display -----------------------------------------------------------
     def show_welcome(self):
-        if not ai.available():
-            self.view.setHtml("<p>AI 해설을 쓰려면 <code>pip install anthropic keyring</code> 이 필요해요.</p>")
-        elif not ai.get_key():
+        model = ai.get_model()
+        self.b_model.setText(f"모델: {model.replace('ollama:', '')}  ⚙")
+        if not ai.ready(model):
             self.view.setHtml(
                 "<h3>AI 해설 시작하기</h3><p>내 코드를 AI가 설명하고 리뷰해 줘요.</p>"
-                "<ol><li>오른쪽 위 <b>설정</b>을 눌러 API 키를 넣어요 (한 번만).</li>"
+                "<ol><li>오른쪽 위 <b>모델 ⚙</b>을 눌러 AI를 고르고 키를 넣어요 (한 번만).<br>"
+                "<span style='color:#2b8a3e'>무료: Gemini Flash(무료 티어) 또는 내 PC의 Ollama</span></li>"
                 "<li>Main.py에서 궁금한 줄을 선택하고 <b>Ctrl+E</b>.</li>"
                 "<li>답을 본 뒤 아래 칸에 이어서 질문할 수 있어요.</li></ol>"
-                "<p style='color:#888'>API 키가 없어도 <b>줄 해설</b> 탭은 그대로 쓸 수 있어요.</p>")
+                "<p style='color:#888'>키가 없어도 <b>줄 해설</b> 탭은 그대로 쓸 수 있어요.</p>")
         else:
-            model = dict(ai.MODELS).get(ai.get_model(), "")
             self.view.setHtml(
-                f"<p>준비됐어요. <span style='color:#888'>({escape(model)})</span></p>"
+                f"<p>준비됐어요. <span style='color:#888'>({escape(ai.label_of(model))})</span></p>"
                 "<ul><li>Main.py에서 줄을 선택 → <b>Ctrl+E</b> 또는 우클릭 → AI에게 설명 듣기</li>"
                 "<li><b>파일 전체 리뷰</b>로 잘한 점·버그·개선점 받기</li></ul>")
 
@@ -233,40 +301,36 @@ class AiPanel(QWidget):
         sb.setValue(sb.maximum())
 
     # --- requests ------------------------------------------------------------
-    def _need_key(self) -> bool:
-        if not ai.available() or not ai.get_key():
-            self.settingsRequested.emit()
-            return not ai.get_key()
-        return False
-
     def start(self, context: str, task: str, title: str):
-        """New conversation: code context + task."""
-        if self._need_key():
-            return
-        self.messages = []
-        self.transcript = ""
+        """New conversation: code context + task, on the currently chosen model."""
+        if not ai.ready():
+            self.settingsRequested.emit()
+            if not ai.ready():
+                return
+        self.stop()
+        self.history = []
+        self.conv_model = ai.get_model()
+        self.transcript = f"*{escape(ai.label_of(self.conv_model))}*\n\n"
         self._send(f"{context}\n\n{task}", f"## 🧑 {title}\n\n")
 
     def _ask(self):
         q = self.question.text().strip()
         if not q or self.busy():
             return
-        if not self.messages:
+        if not self.history:
             self.view.setHtml("<p style='color:#c0392b'>먼저 <b>선택 부분 설명</b>이나 "
                               "<b>파일 전체 리뷰</b>를 시작해 주세요.</p>")
-            return
-        if self._need_key():
             return
         self.question.clear()
         self._send(q, f"\n\n---\n\n## 🧑 {q}\n\n")
 
     def _send(self, user_text, header_md):
-        self.messages.append({"role": "user", "content": user_text})
+        self.history.append({"role": "user", "content": user_text})
         self.transcript += header_md + "**🤖 AI**\n\n"
         self.current = "_생각하는 중…_"
         self._render()
         self.current = ""
-        self.worker = ai.AiWorker(ai.get_key(), ai.get_model(), list(self.messages), self)
+        self.worker = ai.AiWorker(self.conv_model, list(self.history), self)
         self.worker.chunk.connect(self._on_chunk)
         self.worker.done.connect(self._on_done)
         self.worker.failed.connect(self._on_failed)
@@ -279,15 +343,16 @@ class AiPanel(QWidget):
         if not self._render_timer.isActive():
             self._render_timer.start()
 
-    def _on_done(self, content):
-        self.messages.append({"role": "assistant", "content": content})
+    def _on_done(self, text, raw):
+        self.history.append({"role": "assistant", "content": text, "raw": raw})
         self.transcript += self.current
         self.current = ""
         self._render()
 
     def _on_failed(self, msg):
-        self.messages.pop()                  # drop the unanswered question
-        self.transcript += f"\n\n> ⚠️ {msg}\n"
+        if self.history and self.history[-1]["role"] == "user":
+            self.history.pop()                   # drop the unanswered question
+        self.transcript += self.current + f"\n\n> ⚠️ {msg}\n"
         self.current = ""
         self._render()
 
@@ -295,8 +360,8 @@ class AiPanel(QWidget):
         if self.worker and self.worker.isRunning():
             self.worker.stop()
             self.worker.wait(3000)
-            if self.messages and self.messages[-1]["role"] == "user":
-                self.messages.pop()
+            if self.history and self.history[-1]["role"] == "user":
+                self.history.pop()
             self.transcript += self.current + "\n\n> (중지함)\n"
             self.current = ""
             self._render()

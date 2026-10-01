@@ -2,6 +2,15 @@
 
 Qt Designer로 만든 `.ui`와 직접 짜는 `Main.py`를 **나란히 놓고 연결해서 보는** PyQt5 학습용 도구.
 
+## 설치 (처음 한 번)
+
+1. [Python 3.10 이상](https://www.python.org/downloads/) 설치 — 설치 화면에서 **Add python.exe to PATH** 체크
+2. 이 폴더의 **`install.bat`** 더블클릭 → 필요한 패키지 설치 + 바탕화면 아이콘 생성
+3. (선택) AI 해설: 앱의 AI 메뉴 → 모델·키 설정. **무료**로 쓰려면 Gemini Flash(무료 티어 키) 또는 [Ollama](https://ollama.com/download)(내 PC, 완전 무료)
+4. (선택) 내 노트: 보기 → 내 노트 폴더 연결 (Obsidian 볼트나 .md 노트 폴더)
+
+## 실행
+
 - **바탕화면 `PyQt 학습 도우미` 아이콘** 더블클릭 (또는 `start.bat`). 파이썬/.ui 파일을 아이콘 위에 끌어다 놓거나, 실행 중인 창에 끌어다 놓아도 열림.
 - 명령줄: `python run.py "경로/Main.py"` (.ui 파일이나 폴더도 가능)
 - 프로그램 자체 오류는 창으로 알려 주고 `error.log`에 남김.
@@ -27,10 +36,17 @@ Qt Designer로 만든 `.ui`와 직접 짜는 `Main.py`를 **나란히 놓고 연
 - **이름 검사기** (입력할 때마다): `.ui`에 없는 `self.이름`은 빨간 물결 밑줄 + 비슷한 이름 제안, 없는 슬롯 함수는 주황 밑줄, 문법 오류, pyuic 변환 파일과 import 모듈 불일치 경고. Main.py에서 안 쓰는 위젯은 트리에서 흐리게.
 - **에러 해설**: 실행이 에러로 끝나면 AttributeError·ImportError·NameError·슬롯 인자 개수·타입 오류 등을 쉬운 말로 풀고, 에러 난 줄로 이동해 빨갛게 표시.
 - **Designer에서 열기** (Ctrl+D): 현재 `.ui`를 Qt Designer로 엶 (`PyQt5Designer` 패키지의 designer.exe).
-- **AI 해설 설정**: 메뉴 AI → API 키·모델 설정. 키를 붙여넣고 [연결 테스트] → [저장]. 키는 Windows 자격 증명 관리자에 저장되고 파일·저장소에는 남지 않음. 환경변수 `ANTHROPIC_API_KEY`가 있으면 그걸 우선 사용. 모델은 Opus 5.5(기본) / Sonnet 5.5 / Haiku 4.5 중 선택.
+- **AI 해설 설정**: 메뉴 AI → AI 모델·키 설정. 모델을 고르고 그 회사 키를 붙여넣고 [연결 테스트] → [저장]. 키는 회사별로 Windows 자격 증명 관리자에 저장되고 파일·저장소에는 남지 않음 (환경변수 `GEMINI_API_KEY` / `OPENAI_API_KEY` / `ANTHROPIC_API_KEY`가 있으면 우선).
+  | 회사 | 모델 | 비용 |
+  |---|---|---|
+  | Google | Gemini 3.8 Flash (기본), 3.5 Flash-Lite / 3.1 Pro | Flash 계열 **무료 티어** (사용량 제한, 입력이 Google 제품 개선에 쓰일 수 있음) / Pro 유료 |
+  | 내 PC | Ollama 모델 (예: `qwen3:8b`) | **완전 무료**, 인터넷 불필요, PC 성능 필요 |
+  | Anthropic | Claude Opus 5.5 / Sonnet 5.5 / Haiku 4.5 | 유료 |
+  | OpenAI | GPT-6 Astra / GPT-6.1 Sol / GPT-6 Luna | 유료 |
+  목록에 없는 새 모델은 모델 칸에 이름을 직접 입력하면 됨.
 - **시그널 도우미**: 시그널 탭에서 시그널을 더블클릭 → 슬롯 이름을 정하고 미리 본 뒤 [Main.py에 넣기]. `__init__`의 connect 줄 모음 끝에 연결 줄, 클래스 끝에 인자까지 맞춘 함수 틀이 들어감 (초록 표시, Ctrl+Z 한 번에 되돌리기). 이미 연결돼 있으면 그 줄로 이동. `on_위젯_시그널` 이름은 setupUi가 자동 연결해 두 번 실행되므로 피하도록 안내·검사.
 - **.ui 값 고치기**: text·title·숫자·true/false 같은 단순 속성은 속성 표에서 바로 고치면 `.ui`에 저장 (바뀐 줄만 바뀌고 줄바꿈·형식 유지). 복잡한 속성은 Designer에서.
-- **내 노트 연결**: 위젯 클래스가 나오는 내 Obsidian 강의노트 섹션을 찾아 보여 주고, 더블클릭하면 Obsidian에서 그 제목으로 열림. 줄 해설에도 관련 노트 링크. 실습 폴더가 볼트 밖이면 보기 → 강의노트 폴더 지정.
+- **내 노트 연결**: 보기 → 내 노트 폴더 연결로 **직접 연결한** 폴더에서, 위젯 클래스가 나오는 노트 섹션을 찾아 보여 줌. 더블클릭하면 Obsidian 볼트는 Obsidian에서 그 제목으로, 일반 폴더는 기본 앱으로 열림. 줄 해설에도 관련 노트 링크.
 - **색 범례**: 코드 아래에 색 표시 뜻이 늘 보임 (보기 → 색 범례 보기로 끄기).
 - **편의 기능**: 시작 화면과 최근 파일, 메뉴·단축키(F1 사용법), Ctrl+휠로 코드 글자 크기, 보기 → 화면 배치 초기화, 현재 줄 강조.
 
@@ -46,7 +62,9 @@ Qt Designer로 만든 `.ui`와 직접 짜는 `Main.py`를 **나란히 놓고 연
 
 ```
 run.py                     진입점 (Qt 플러그인 경로 보정, 오류 창)
+install.bat                처음 설치 (패키지 + 바탕화면 아이콘)
 start.bat                  더블클릭 실행
+tools/make_shortcut.py     바탕화면 아이콘 만들기
 studyhelper/
   mainwindow.py            화면 조립, 파일 감시, 실행
   preview.py               미리보기 + 빨간 강조 오버레이
@@ -58,7 +76,7 @@ studyhelper/
   checker.py               이름 검사기
   errors.py                traceback → 쉬운 해설
   explain.py               줄 해설 규칙 (무엇/왜/주의)
-  ai.py                    Claude API 호출, 키 저장
+  ai.py                    AI 호출 (Claude·GPT·Gemini·Ollama), 키 저장
   explainpanel.py          줄 해설·AI 해설 패널, 설정 대화상자
   codegen.py, signaldialog.py  시그널 연결 코드 만들기
   notes.py                 Obsidian 강의노트 검색·열기

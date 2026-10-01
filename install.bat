@@ -1,0 +1,33 @@
+@echo off
+rem PyQt Study Helper - one-time setup: installs packages and makes a desktop shortcut.
+cd /d "%~dp0"
+
+where python >nul 2>nul
+if errorlevel 1 (
+    echo.
+    echo [!] Python was not found.
+    echo     Install Python 3.10+ from https://www.python.org/downloads/
+    echo     and check "Add python.exe to PATH" during setup. Then run install.bat again.
+    echo.
+    pause
+    exit /b 1
+)
+
+echo [1/3] Installing required packages...
+python -m pip install --upgrade -r requirements.txt
+if errorlevel 1 (
+    echo [!] Package install failed. Check your internet connection and try again.
+    pause
+    exit /b 1
+)
+
+echo [2/3] Installing Qt Designer (optional)...
+python -m pip install --upgrade PyQt5Designer >nul 2>nul
+if errorlevel 1 echo     Qt Designer package could not be installed - you can still use your own Designer.
+
+echo [3/3] Creating desktop shortcut...
+python tools\make_shortcut.py
+
+echo.
+echo Done! Double-click the desktop icon to start.
+pause
