@@ -3,13 +3,13 @@ from html import escape
 
 from PyQt5.QtCore import Qt, QTimer, QUrl, pyqtSignal
 from PyQt5.QtGui import QDesktopServices
-from PyQt5.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
-                             QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton,
+from PyQt5.QtWidgets import (QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog,
+                             QDialogButtonBox, QHBoxLayout, QRadioButton, QLabel, QLineEdit, QMessageBox, QPushButton,
                              QTextBrowser, QVBoxLayout, QWidget)
 
 import re
 
-from . import ai, explain, notes
+from . import ai, explain, notes, webview
 
 
 # ------------------------------------------------------------- line explainer
@@ -79,6 +79,24 @@ class AiSettingsDialog(QDialog):
         self.free_note.setWordWrap(True)
         self.free_note.setOpenExternalLinks(True)
         lay.addWidget(self.free_note)
+
+        self.where_box = QWidget()
+        wl = QVBoxLayout(self.where_box)
+        wl.setContentsMargins(0, 6, 0, 0)
+        wl.addWidget(QLabel("<b>2. 웹 AI를 어디서 열까요?</b>"))
+        self.r_inside = QRadioButton("도우미 옆의 웹 AI 창 (내장 브라우저) — 로그인은 한 번만, 창 왔다 갔다 안 해도 돼요")
+        self.r_outside = QRadioButton("기본 브라우저 (크롬·엣지 등) — 이미 로그인돼 있다면 편해요")
+        self.where = QButtonGroup(self)
+        self.where.addButton(self.r_inside)
+        self.where.addButton(self.r_outside)
+        wl.addWidget(self.r_inside)
+        wl.addWidget(self.r_outside)
+        if not webview.available():
+            self.r_inside.setEnabled(False)
+            self.r_inside.setText(self.r_inside.text().split(" — ")[0] +
+                                  " — 설치 필요: install.bat 다시 실행 (또는 pip install PyQtWebEngine)")
+        (self.r_inside if ai.web_open_mode() == "inside" else self.r_outside).setChecked(True)
+        lay.addWidget(self.where_box)
 
         lay.addSpacing(8)
         self.key_title = QLabel()
@@ -174,6 +192,7 @@ class AiSettingsDialog(QDialog):
         }
         self.free_note.setText(f"<span style='color:#555'>{notes_[prov]}</span>")
         is_local = prov in ("ollama", "web")
+        self.where_box.setVisible(prov == "web")
         self.key_row.setVisible(not is_local)
         self.delete_btn.setVisible(not is_local)
         self.test_btn.setVisible(prov != "web")
@@ -217,6 +236,8 @@ class AiSettingsDialog(QDialog):
             if prov not in ("ollama", "web") and k.strip() != ai.get_key(prov):
                 ai.set_key(prov, k)
         ai.set_model(model)
+        if ai.provider_of(model) == "web":
+            ai.set_web_open_mode("inside" if self.r_inside.isChecked() else "outside")
         self.accept()
 
     def _delete(self):
@@ -231,6 +252,7 @@ class AiSettingsDialog(QDialog):
 # ------------------------------------------------------------------ AI panel
 class AiPanel(QWidget):
     settingsRequested = pyqtSignal()
+    openWebRequested = pyqtSignal(str)   # url — main window opens it inside or in the default browser
     explainRequested = pyqtSignal()      # main window supplies the selected code
     reviewRequested = pyqtSignal()
 
@@ -365,8 +387,9 @@ class AiPanel(QWidget):
         self.conv_model = model
         self._copy_own(prompt)
         url = ai.web_url(model)
-        QDesktopServices.openUrl(QUrl(url))
+        self.openWebRequested.emit(url)
         name = ai.short_name(model)
+        where = "도우미 옆 웹 AI 창" if ai.web_open_mode() == "inside" else "브라우저"
         self._web_name = name
         self._answers = 0
         self.transcript = (f"## 🧑 {title}\n\n"
@@ -374,7 +397,7 @@ class AiPanel(QWidget):
         self.current = ""
         self.view.setHtml(
             f"<h3>📋 {escape(title)} — 질문을 복사했어요</h3>"
-            f"<p><b>{escape(name)}</b> 창이 열렸어요 (안 열리면 <a href='{url}'>여기</a>).</p>"
+            f"<p><b>{escape(name)}</b> — {where}에서 열었어요 (안 열리면 <a href='{url}'>여기</a>).</p>"
             "<ol><li>웹 AI의 입력칸을 클릭하고 <b>Ctrl+V</b> → <b>Enter</b></li>"
             "<li>답이 나오면 답 아래의 <b>복사 버튼</b>을 누르세요 (또는 답을 드래그해서 Ctrl+C)</li>"
             "<li><b>→ 답이 자동으로 여기로 들어와요.</b></li></ol>"

@@ -51,7 +51,7 @@ API 키·노트 폴더는 각자 앱에서 설정 (zip에는 들어 있지 않�
 - **AI 해설 설정**: 메뉴 AI → AI 모델·키 설정. 모델을 고르고 그 회사 키를 붙여넣고 [연결 테스트] → [저장]. 키는 회사별로 Windows 자격 증명 관리자에 저장되고 파일·저장소에는 남지 않음 (환경변수 `GEMINI_API_KEY` / `OPENAI_API_KEY` / `ANTHROPIC_API_KEY`가 있으면 우선).
   | 회사 | 모델 | 비용 |
   |---|---|---|
-  | 웹 AI (기본) | ChatGPT 웹 / Gemini 웹 / Claude 웹 | **무료, 키 필요 없음** — 질문을 복사해 웹 창을 열어 주고, 웹에서 답의 복사 버튼을 누르면 답이 앱으로 들어옴 |
+  | 웹 AI (기본) | ChatGPT 웹 / Gemini 웹 / Claude 웹 | **무료, 키 필요 없음** — 질문을 복사해 웹 창을 열어 주고, 웹에서 답의 복사 버튼을 누르면 답이 앱으로 들어옴. 여는 곳은 **도우미 옆 내장 브라우저 창**(로그인 유지, PyQtWebEngine 필요) 또는 **기본 브라우저** 중 선택. 내장 브라우저는 엔진이 오래돼 Claude 보안 확인이나 구글 로그인이 막힐 수 있음 → 그땐 기본 브라우저 |
   | Google | Gemini 3.8 Flash (기본), 3.5 Flash-Lite / 3.1 Pro | Flash 계열 **무료 티어** (사용량 제한, 입력이 Google 제품 개선에 쓰일 수 있음) / Pro 유료 |
   | 내 PC | Ollama 모델 (예: `qwen3:8b`) | **완전 무료**, 인터넷 불필요, PC 성능 필요 |
   | Anthropic | Claude Opus 5.5 / Sonnet 5.5 / Haiku 4.5 | 유료 |
@@ -63,6 +63,7 @@ API 키·노트 폴더는 각자 앱에서 설정 (zip에는 들어 있지 않�
 - **objectName 바꾸기** (F2, 위젯 트리 우클릭): `.ui`의 이름과 모든 참조(시그널/슬롯 편집기, 탭 순서, 버튼 그룹, 메뉴 액션)와 Main.py의 `self.이름`을 한꺼번에 바꿈. 최상위 창이면 `Ui_클래스` 이름과 import 줄까지. 미리보기 후 적용, Main.py는 Ctrl+Z로 되돌리기.
 - **도전 모드** (Ctrl+T): 목표 화면 `.ui`(예제·정답)를 고르면 왼쪽에 목표 화면, 오른쪽에 체크리스트. [빈 .ui 만들어서 시작] → Designer에서 만들고 저장할 때마다 위젯 종류·개수, 레이아웃, 글자, (보너스) objectName을 자동 채점.
 - **색 범례**: 코드 아래에 색 표시 뜻이 늘 보임 (보기 → 색 범례 보기로 끄기).
+- **한 Main.py에 .ui 여러 개**: 파일이 쓰는 .ui를 모두 함께 읽어 모든 위젯 이름이 파랗게 표시. `class dlgForm(QDialog, Ui_Dialog)`처럼 클래스마다 어떤 .ui인지 알아내서, 그 클래스 안의 이름에 마우스를 올리거나 커서를 옮기면 미리보기가 그 .ui로 바뀜. 시그널 도우미·이름 바꾸기도 그 클래스 기준.
 - **편의 기능**: 시작 화면과 최근 파일, 메뉴·단축키(F1 사용법), Ctrl+휠로 코드 글자 크기, 보기 → 화면 배치 초기화, 현재 줄 강조.
 
 ## 단계 계획
@@ -91,7 +92,8 @@ studyhelper/
   checker.py               이름 검사기
   errors.py                traceback → 쉬운 해설
   explain.py               줄 해설 규칙 (무엇/왜/주의)
-  ai.py                    AI 호출 (Claude·GPT·Gemini·Ollama), 키 저장
+  ai.py                    AI 호출 (Claude·GPT·Gemini·Ollama·웹 AI), 키 저장
+  webview.py               웹 AI 내장 브라우저 창
   explainpanel.py          줄 해설·AI 해설 패널, 설정 대화상자
   codegen.py, signaldialog.py  시그널 연결 코드 만들기
   notes.py                 Obsidian 강의노트 검색·열기

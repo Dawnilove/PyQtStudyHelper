@@ -39,6 +39,8 @@ def main():
     from PyQt5.QtWidgets import QApplication
     from studyhelper.mainwindow import MainWindow
 
+    # lets the built-in browser (QtWebEngine) be loaded only when the web AI window is first opened
+    QApplication.setAttribute(Qt.AA_ShareOpenGLContexts, True)
     QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
     QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
     app = QApplication(sys.argv)

@@ -149,6 +149,8 @@ class MainWindow(QMainWindow):
                            "선택한 줄(없으면 현재 줄)을 AI가 설명 (Ctrl+E)")
         self.a_review = A("AI 코드 리뷰", self.ai_review, "Ctrl+Shift+R", None, "Main.py 전체 리뷰")
         self.a_ai_settings = A("AI 모델·키 설정…", self.ai_settings)
+        self.a_web_ai = A("웹 AI 창 열기", lambda: self.open_web_ai(ai.web_url(ai.get_model())), None, None,
+                          "도우미 옆에 ChatGPT·Gemini·Claude 웹 창을 열어요 (무료 계정으로 사용)")
         self.a_zoom_in = A("글자 크게", lambda: self.zoom(1), QKeySequence.ZoomIn)
         self.a_zoom_out = A("글자 작게", lambda: self.zoom(-1), QKeySequence.ZoomOut)
         self.a_zoom_reset = A("글자 크기 원래대로", lambda: self.zoom(0), "Ctrl+0")
@@ -184,6 +186,7 @@ class MainWindow(QMainWindow):
         m = mb.addMenu("AI(&A)")
         for a in (self.a_explain, self.a_review):
             m.addAction(a)
+        m.addAction(self.a_web_ai)
         m.addSeparator()
         m.addAction(self.a_ai_settings)
         m = mb.addMenu("보기(&V)")
@@ -252,6 +255,8 @@ class MainWindow(QMainWindow):
         self.line_view.anchorClicked.connect(lambda url: self.open_note(url.toString()))
         self.ai_panel = AiPanel()
         self.ai_panel.settingsRequested.connect(self.ai_settings)
+        self.ai_panel.openWebRequested.connect(self.open_web_ai)
+        self.web_window = None
         self.ai_panel.explainRequested.connect(self.ai_explain)
         self.ai_panel.reviewRequested.connect(self.ai_review)
         self.explain_tabs = QTabWidget()
@@ -515,6 +520,18 @@ class MainWindow(QMainWindow):
             self.save_py()
         self.explain_tabs.setCurrentWidget(self.ai_panel)
         self.ai_panel.start(self._ai_context(), ai.REVIEW_TASK, f"{self.py_path.name} 전체 리뷰")
+
+    def open_web_ai(self, url):
+        from . import webview
+        if ai.web_open_mode() == "inside" and webview.available():
+            try:
+                if self.web_window is None:
+                    self.web_window = webview.WebAiWindow(self)
+                self.web_window.open_site(url)
+                return
+            except Exception as e:          # e.g. the web engine can't start on this PC
+                self._status(f"내장 브라우저를 열 수 없어 기본 브라우저로 열어요: {e}", 10000)
+        QDesktopServices.openUrl(QUrl(url))
 
     def ai_settings(self):
         if AiSettingsDialog(self).exec_():
@@ -1189,6 +1206,8 @@ class MainWindow(QMainWindow):
             return
         self.stop()
         self.ai_panel.stop()
+        if self.web_window is not None:
+            self.web_window.shutdown()
         for k, s in self.splitters.items():
             self.settings.setValue(f"split2/{k}", s.saveState())
         e.accept()
