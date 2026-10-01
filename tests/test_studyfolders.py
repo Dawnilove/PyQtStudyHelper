@@ -7,6 +7,7 @@ from pathlib import Path
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt5.QtCore import QSettings                                  # noqa: E402
+from PyQt5.QtTest import QTest                                      # noqa: E402
 from PyQt5.QtWidgets import QApplication, QFileDialog               # noqa: E402
 
 from studyhelper import studyfolders as sf                          # noqa: E402
@@ -176,6 +177,148 @@ class Dialogs(TempDirs):
         dlg.view.setCurrentRow(-1)
         dlg.remove_selected()
         self.assertEqual(dlg.folders(), [a])
+
+
+class FindMainFiles(TempDirs):
+    def touch(self, rel) -> Path:
+        p = self.root / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("", encoding="utf-8")
+        return p
+
+    def rels(self, found):
+        return [str(Path(p).relative_to(self.root)) for p in found]
+
+    def test_finds_main_py_in_sub_folders(self):
+        self.touch("a/Main.py")
+        self.touch("b/c/main.py")
+        found = sf.find_main_files(self.root)
+        self.assertEqual(self.rels(found), [os.path.join("a", "Main.py"), os.path.join("b", "c", "main.py")])
+
+    def test_file_directly_in_the_folder_is_found(self):
+        self.touch("Main.py")
+        self.assertEqual(self.rels(sf.find_main_files(self.root)), ["Main.py"])
+
+    def test_name_match_ignores_case(self):
+        self.touch("a/MAIN.PY")
+        self.assertEqual(len(sf.find_main_files(self.root)), 1)
+
+    def test_other_main_like_names_are_not_included(self):
+        for name in ("Main_sol.py", "main_wnd.py", "Main2.py", "mainwindow.py", "notmain.py", "Main.pyc", "Main.ui"):
+            self.touch(f"lesson/{name}")
+        self.assertEqual(sf.find_main_files(self.root), [])
+
+    def test_a_folder_called_main_py_is_not_a_file(self):
+        (self.root / "Main.py").mkdir()
+        self.assertEqual(sf.find_main_files(self.root), [])
+
+    def test_depth_limit(self):
+        self.touch("a/b/Main.py")            # two folders down
+        self.touch("a/b/c/Main.py")          # three folders down
+        found = self.rels(sf.find_main_files(self.root, max_depth=2))
+        self.assertEqual(found, [os.path.join("a", "b", "Main.py")])
+
+    def test_junk_folders_are_skipped(self):
+        for junk in (".git", "__pycache__", "venv", ".venv", "node_modules", "site-packages"):
+            self.touch(f"{junk}/x/Main.py")
+        self.touch("ok/Main.py")
+        self.assertEqual(self.rels(sf.find_main_files(self.root)), [os.path.join("ok", "Main.py")])
+
+    def test_limit_keeps_the_first_ones_in_natural_order(self):
+        for n in (10, 2, 1, 3, 4):
+            self.touch(f"lesson{n}/Main.py")
+        found = self.rels(sf.find_main_files(self.root, limit=3))
+        self.assertEqual(found, [os.path.join(f"lesson{n}", "Main.py") for n in (1, 2, 3)])
+
+    def test_numbers_in_folder_names_sort_naturally(self):
+        for n in (10, 2, 1):
+            self.touch(f"lesson{n}/Main.py")
+        found = self.rels(sf.find_main_files(self.root))
+        self.assertEqual(found, [os.path.join(f"lesson{n}", "Main.py") for n in (1, 2, 10)])
+
+    def test_missing_folder_gives_an_empty_list(self):
+        self.assertEqual(sf.find_main_files(self.missing("nope")), [])
+
+    def test_results_are_paths(self):
+        self.touch("a/Main.py")
+        self.assertTrue(all(isinstance(p, Path) for p in sf.find_main_files(self.root)))
+
+
+class MainLabel(TempDirs):
+    def test_label_shows_the_folder_path_below_the_study_folder(self):
+        folder = self.root / "Python Study"
+        path = folder / "실습" / "ex1" / "Main.py"
+        self.assertEqual(sf.main_label(folder, path), os.path.join("실습", "ex1") + " / Main.py")
+
+    def test_file_directly_in_the_study_folder_is_labelled_with_the_folder_name(self):
+        folder = self.root / "Python Study"
+        self.assertEqual(sf.main_label(folder, folder / "Main.py"), "Python Study / Main.py")
+
+
+class Scanner(TempDirs):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def lesson(self, folder, name="Main.py") -> str:
+        p = self.root / folder / "l1" / name
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("", encoding="utf-8")
+        return str(p)
+
+    def wait_idle(self, scanner, timeout_ms=10000):
+        waited = 0
+        while scanner.busy and waited < timeout_ms:
+            QTest.qWait(20)
+            waited += 20
+        self.assertFalse(scanner.busy, "scan did not finish")
+
+    def test_scan_delivers_the_main_files_of_each_folder(self):
+        a, b = str(self.root / "A"), str(self.root / "B")
+        pa, pb = self.lesson("A"), self.lesson("B")
+        scanner = sf.MainFilesScanner()
+        got = []
+        scanner.ready.connect(got.append)
+        scanner.scan([a, b])
+        self.wait_idle(scanner)
+        self.assertEqual(scanner.result, {a: [pa], b: [pb]})
+        self.assertEqual(got, [{a: [pa], b: [pb]}])
+
+    def test_scan_is_busy_until_the_result_arrives(self):
+        a = str(self.root / "A")
+        self.lesson("A")
+        scanner = sf.MainFilesScanner()
+        scanner.scan([a])
+        self.assertTrue(scanner.busy)
+        self.wait_idle(scanner)
+
+    def test_folder_that_does_not_exist_is_left_out(self):
+        a = str(self.root / "A")
+        self.lesson("A")
+        scanner = sf.MainFilesScanner()
+        scanner.scan([a, self.missing("gone")])
+        self.wait_idle(scanner)
+        self.assertEqual(list(scanner.result), [a])
+
+    def test_only_the_newest_scan_is_delivered(self):
+        a, b = str(self.root / "A"), str(self.root / "B")
+        self.lesson("A")
+        pb = self.lesson("B")
+        scanner = sf.MainFilesScanner()
+        got = []
+        scanner.ready.connect(got.append)
+        scanner.scan([a])
+        scanner.scan([b])
+        self.wait_idle(scanner)
+        QTest.qWait(200)                                  # an older answer, if wrongly kept, would show up now
+        self.assertEqual(got, [{b: [pb]}])
+        self.assertEqual(scanner.result, {b: [pb]})
+
+    def test_no_folders_gives_an_empty_result(self):
+        scanner = sf.MainFilesScanner()
+        scanner.scan([])
+        self.wait_idle(scanner)
+        self.assertEqual(scanner.result, {})
 
 
 if __name__ == "__main__":

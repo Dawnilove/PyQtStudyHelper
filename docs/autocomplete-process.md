@@ -121,7 +121,7 @@ python -m unittest discover -s tests -t .
 
 ## 10. 학습 폴더 등록 + 파일 열기 시작 위치 (같은 날 후속 작업)
 
-> 자동완성 PR(`feature/autocomplete`) 위에서 이어서 작업했고, 이 장의 변경은 따로 커밋하기 전 상태다.
+> 자동완성 PR(`feature/autocomplete`) 위에서 이어서 작업했다. 이 장의 변경은 커밋 `b241cf3`(코드)·`8fedad3`(문서)로 PR #1에 담겨 `Dawnilove/Vibecoding`의 `main`에 병합됐다(병합 커밋 `4c1bd2d`).
 
 ### 요구와 결정
 
@@ -155,3 +155,41 @@ python -m unittest discover -s tests -t .
 바뀐 것: `studyFolders`(원래 없던 값)가 생기고, `lastDir`·`lastFile`이 임시 폴더로 바뀌고, `recent` 맨 앞에 임시 파일이 들어갔다.
 조치: Qt(`QSettings`)로 직접 되돌렸다 — 임시 경로가 섞인 `recent` 항목을 지우고, `lastFile`은 `recent`의 첫 항목으로, `lastDir`은 그 파일의 폴더로 복원, `studyFolders`는 삭제. 되돌린 값은 확인 직전에 관찰한 `lastDir`(`...\1. Standard Dialog\ex4_1_04`)와 일치한다.
 한계: 원래 `lastFile`은 직접 관찰하지 못하고 `recent` 첫 항목으로 추정한 값이다. 앱을 열었을 때 마지막 파일이 예전과 다르면 이 때문일 수 있다.
+
+## 11. 학습 폴더의 Main 파일을 최근 파일 자리에 보여 주기 (같은 날 후속 작업)
+
+> 이 장의 변경은 커밋 `ca34d3c`(코드)·`ded878e`(문서)이고, PR #1이 이미 병합된 뒤에 만들어져서 **후속 PR**로 보냈다.
+> (PR #1에 푸시해도 병합이 끝난 PR에는 커밋이 반영되지 않는다는 점을 푸시한 뒤에야 확인했다.)
+
+### 요구와 결정
+
+요청: "학습폴더 내부에 있는 main파일들 위치를 최근파일 위치에 등록해줘".
+이 PC의 학습 폴더(`Desktop\Python Study`)에는 `main.py`(대소문자 무관)가 **55개**인데 최근 파일은 최대 10개(`r[:10]`)라, 그대로 넣으면 직접 연 최근 파일이 전부 밀려난다.
+
+| 항목 | 결정 |
+|---|---|
+| 보이는 방식 | **최근 파일 아래 '학습 폴더' 구역으로 따로** (사용자 선택). 합치기·한 번만 채우기는 채택하지 않음 |
+| 저장 | 저장하는 `recent`에는 **넣지 않음**. 보여 주기만 한다 |
+| 찾는 파일 | 이름이 `main.py`인 파일(대소문자 무관). `Main_sol.py`, `main_wnd.py`, `Main2.py` 등은 제외 (`locate.main_py_in`과 같은 기준) |
+| 찾는 범위 | 하위 폴더 6단계까지, 폴더당 500개까지. `.`으로 시작하는 폴더와 `__pycache__`, `node_modules`, `venv`, `env`, `site-packages`는 건너뜀 |
+| 다시 찾는 때 | 앱 시작, 학습 폴더 저장, 시작 화면으로 돌아올 때(30초에 한 번까지) |
+
+### 구현
+
+- `studyhelper/studyfolders.py`: `find_main_files()`(숫자를 자연 정렬, `lesson2`가 `lesson10`보다 앞), `main_label()`(학습 폴더 기준 상대 경로 `ex1 / Main.py`), `MainFilesScanner`(백그라운드 스레드, 최신 요청만 전달).
+- `studyhelper/mainwindow.py`: `_fill_recent()`가 `_fill_study_sections()`를 불러 시작 화면 목록과 최근 파일 메뉴(학습 폴더별 하위 메뉴)에 구역을 붙인다. `_rescan_study(force=False)`가 찾기를 시작한다.
+- 찾는 동안 구역 제목에 `(찾는 중…)`, 파일이 없으면 `(Main 파일이 없어요)`, 다 찾으면 `(55개)`처럼 표시한다. 구역 제목은 선택할 수 없다.
+- 초기화 순서 주의: `_fill_recent()`와 `_on_page_changed(0)`이 `_build_ui()` 안에서 불리므로 `self.scanner`는 `_build_ui()` **전에** 만들어야 한다.
+
+### 테스트
+
+- `tests/test_studyfolders.py`: 찾기·라벨·스캐너 18개 추가 (파일 전체 43개).
+- `tests/test_mainwindow_study.py` (신규): 실제 `MainWindow`를 오프스크린으로 띄우는 16개. 설정은 `QSettings` 클래스를 교체해 격리했다 (7장 7번).
+- 전체: `python -m unittest discover -s tests -t .` → **104개 통과** (자동완성 45 + 학습 폴더 43 + 창 연결 16).
+- 이 PC의 실제 학습 폴더를 읽기 전용으로 찾아 확인: **0.28초에 Main 파일 55개**, 시작 화면 목록 57줄(없음 표시 1 + 구역 제목 1 + 파일 55), 메뉴 하위 메뉴 항목 55개, `recent`에는 아무것도 저장되지 않음. 실제 앱 설정은 전후 키 개수·해시가 같았다.
+- **눈으로 못 본 것**: 목록과 메뉴가 실제 화면에 어떻게 그려지는지. 특히 55개짜리 하위 메뉴가 화면에서 어떻게 스크롤되는지는 사람이 열어 봐야 한다.
+
+### 겪은 함정
+
+- 확인 스크립트의 `print`가 `cp949` 콘솔에서 `—`(긴 줄표) 때문에 `UnicodeEncodeError`로 멈췄다. `PYTHONUTF8=1 PYTHONIOENCODING=utf-8`로 실행한다. 구역 제목에 `—`를 쓰므로 콘솔로 찍는 코드는 주의.
+- 이번 확인 중 실제 설정의 `studyFolders`가 이미 있었다 (사용자가 앱에서 직접 `Desktop\Python Study`를 등록한 것). 확인 스크립트는 격리돼 있어 이 값을 건드리지 않았다.

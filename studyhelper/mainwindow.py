@@ -2,6 +2,7 @@
 import os
 import shutil
 import sys
+import time
 from html import escape
 from pathlib import Path
 
@@ -26,7 +27,8 @@ from .editor import CodeEditor
 from .locate import import_mismatch, main_py_in, py_for_ui, read_text, ui_candidates
 from .preview import PreviewPane
 from .props import PropertyPanel
-from .studyfolders import StudyFoldersDialog, load_folders, pick_file, save_folders, start_dir
+from .studyfolders import (MainFilesScanner, StudyFoldersDialog, existing_folders, load_folders, main_label,
+                           pick_file, save_folders, start_dir)
 from .ui_model import UiModel
 
 
@@ -110,6 +112,9 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.settings = QSettings("PyQtStudyHelper", "PyQtStudyHelper")
+        self.scanner = MainFilesScanner(self)      # finds the study folders' Main files without freezing the window
+        self.scanner.ready.connect(lambda _: self._fill_recent())
+        self._scan_at = 0.0
         self.py_path: Path | None = None
         self.ui_path: Path | None = None
         self.encoding, self.crlf = "utf-8", True
@@ -400,11 +405,62 @@ class MainWindow(QMainWindow):
             it.setData(Qt.UserRole, x)
             it.setToolTip(x)
             self.recent_list.addItem(it)
-        self.recent_menu.setEnabled(bool(recent))
         if not recent:
             it = QListWidgetItem("(아직 없음)")
             it.setFlags(Qt.NoItemFlags)
             self.recent_list.addItem(it)
+        has_study = self._fill_study_sections(separator=bool(recent))
+        self.recent_menu.setEnabled(bool(recent) or has_study)
+
+    def _fill_study_sections(self, separator: bool) -> bool:
+        """Under the real recent files: one section per study folder listing its Main files.
+
+        These are searched by `self.scanner`, shown only, and never written into the saved "recent" list.
+        """
+        folders = existing_folders(load_folders(self.settings))
+        for i, folder in enumerate(folders):
+            name = Path(folder).name or folder
+            found = self.scanner.result.get(folder)
+            if found is None:
+                note, files = "(찾는 중…)", []
+            elif not found:
+                note, files = "(Main 파일이 없어요)", []
+            else:
+                note, files = f"({len(found)}개)", found
+            header = QListWidgetItem(f"학습 폴더 — {name}   {note}")
+            header.setFlags(Qt.NoItemFlags)
+            font = header.font()
+            font.setBold(True)
+            header.setFont(font)
+            header.setForeground(QColor("#555555"))
+            header.setToolTip(folder)
+            self.recent_list.addItem(header)
+
+            if i == 0 and separator:
+                self.recent_menu.addSeparator()
+            sub = self.recent_menu.addMenu(f"학습 폴더 — {name}")
+            sub.setToolTipsVisible(True)
+            if not files:
+                sub.addAction(note).setEnabled(False)
+            for x in files:
+                label = main_label(folder, x)
+                it = QListWidgetItem(label)
+                it.setData(Qt.UserRole, x)
+                it.setToolTip(x)
+                self.recent_list.addItem(it)
+                a = sub.addAction(label)
+                a.setToolTip(x)
+                a.triggered.connect(lambda _=False, x=x: self.open_path(x))
+        return bool(folders)
+
+    def _rescan_study(self, force=False):
+        """Search the study folders for Main files again (at most every 30 s unless forced)."""
+        now = time.monotonic()
+        if not force and now - self._scan_at < 30:
+            return
+        self._scan_at = now
+        self.scanner.scan(load_folders(self.settings))
+        self._fill_recent()                        # shows "찾는 중…" right away
 
     def _on_page_changed(self, idx):
         on = idx == 1
@@ -412,6 +468,8 @@ class MainWindow(QMainWindow):
                   self.a_zoom_in, self.a_zoom_out, self.a_zoom_reset):
             a.setEnabled(on)
         self.ui_combo.setEnabled(on)
+        if idx == 0:
+            self._rescan_study()                   # also runs once at start-up, when the start screen is built
 
     # --------------------------------------------------------------- view
     def zoom(self, step):
@@ -683,6 +741,7 @@ class MainWindow(QMainWindow):
         dlg = StudyFoldersDialog(load_folders(self.settings), self)
         if dlg.exec_() == QDialog.Accepted:
             save_folders(self.settings, dlg.folders())
+            self._rescan_study(force=True)
             self._status(f"학습 폴더 {len(dlg.folders())}개를 저장했어요. 파일 열기 창 왼쪽에 나와요.")
 
     def open_path(self, path) -> bool:

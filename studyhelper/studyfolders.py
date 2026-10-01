@@ -1,12 +1,18 @@
 """Study folders: shortcuts on the left of the open dialog, and where that dialog starts."""
 import os
+import re
+import threading
 from pathlib import Path
 
-from PyQt5.QtCore import QDir, QStandardPaths, Qt, QUrl
+from PyQt5.QtCore import QDir, QObject, QStandardPaths, Qt, QUrl, pyqtSignal
 from PyQt5.QtWidgets import (QDialog, QDialogButtonBox, QFileDialog, QHBoxLayout, QLabel, QListWidget,
                              QListWidgetItem, QPushButton, QVBoxLayout)
 
 KEY = "studyFolders"                 # QSettings key holding the list of folder paths
+MAIN_NAME = "main.py"                # compared in lower case, like locate.main_py_in does
+MAX_DEPTH = 6                        # folders below a study folder that are searched for Main files
+MAX_MAIN_FILES = 500                 # per study folder, so registering a whole drive cannot run away
+SKIP_DIRS = {"__pycache__", "node_modules", "venv", "env", "site-packages"}   # plus every ".name" folder
 
 
 def _same(a, b) -> bool:
@@ -89,6 +95,70 @@ def pick_file(parent, title, start, name_filter, folders) -> str:
     if dlg.exec_() == QDialog.Accepted and dlg.selectedFiles():
         return dlg.selectedFiles()[0]
     return ""
+
+
+def _natural(text: str) -> list:
+    """Sort key that puts lesson2 before lesson10."""
+    return [int(t) if t.isdigit() else t.lower() for t in re.split(r"(\d+)", text)]
+
+
+def find_main_files(folder, max_depth=MAX_DEPTH, limit=MAX_MAIN_FILES) -> list[Path]:
+    """Files called main.py (any case) below `folder`, in natural order of their path."""
+    root = Path(folder)
+    found: list[Path] = []
+    for here, dirs, files in os.walk(root):
+        depth = len(Path(here).relative_to(root).parts)
+        dirs[:] = sorted((d for d in dirs if not d.startswith(".") and d.lower() not in SKIP_DIRS),
+                         key=_natural) if depth < max_depth else []
+        for name in sorted(files, key=_natural):
+            if name.lower() == MAIN_NAME:
+                found.append(Path(here) / name)
+        if len(found) >= limit:
+            break
+    found.sort(key=lambda p: _natural(str(p.relative_to(root))))
+    return found[:limit]
+
+
+def main_label(folder, path) -> str:
+    """'ex1_2_02 / Main.py' style label: the file's folder relative to its study folder."""
+    folder, path = Path(folder), Path(path)
+    rel = path.parent.relative_to(folder)
+    return f"{rel if rel.parts else folder.name} / {path.name}"
+
+
+class MainFilesScanner(QObject):
+    """Looks for the Main files of the study folders on a worker thread so the window never waits.
+
+    `ready` carries {folder: [path, ...]} once the newest scan is done; older scans are dropped.
+    """
+    _done = pyqtSignal(int, object)
+    ready = pyqtSignal(object)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.result: dict[str, list[str]] = {}
+        self.busy = False
+        self._gen = 0
+        self._done.connect(self._on_done)
+
+    def scan(self, folders):
+        self._gen += 1
+        self.busy = True
+        threading.Thread(target=self._run, args=(self._gen, existing_folders(folders)), daemon=True).start()
+
+    def _run(self, gen, folders):
+        out = {f: [str(p) for p in find_main_files(f)] for f in folders}
+        try:
+            self._done.emit(gen, out)                # queued: handled on the GUI thread
+        except RuntimeError:                         # the window is already gone
+            pass
+
+    def _on_done(self, gen, out):
+        if gen != self._gen:
+            return
+        self.busy = False
+        self.result = out
+        self.ready.emit(out)
 
 
 class StudyFoldersDialog(QDialog):
