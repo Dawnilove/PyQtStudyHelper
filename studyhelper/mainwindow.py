@@ -11,7 +11,7 @@ from PyQt5.QtCore import (QFileSystemWatcher, QProcess, QProcessEnvironment, QSe
 from PyQt5.QtCore import QUrl
 from PyQt5.QtGui import QColor, QDesktopServices, QFont, QKeySequence, QTextCursor
 from PyQt5.QtCore import pyqtSignal
-from PyQt5.QtWidgets import (QAction, QComboBox, QFileDialog, QLabel, QListWidget, QListWidgetItem,
+from PyQt5.QtWidgets import (QAction, QComboBox, QDialog, QFileDialog, QLabel, QListWidget, QListWidgetItem,
                              QMainWindow, QMessageBox, QPlainTextEdit, QSizePolicy, QSplitter, QStyle,
                              QTabWidget, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
                              QStackedWidget, QPushButton, QHBoxLayout, QTextBrowser, QMenu)
@@ -26,6 +26,7 @@ from .editor import CodeEditor
 from .locate import import_mismatch, main_py_in, py_for_ui, read_text, ui_candidates
 from .preview import PreviewPane
 from .props import PropertyPanel
+from .studyfolders import StudyFoldersDialog, load_folders, pick_file, save_folders, start_dir
 from .ui_model import UiModel
 
 
@@ -137,6 +138,8 @@ class MainWindow(QMainWindow):
         A = lambda text, slot, key=None, icon=None, tip=None: self._action(text, slot, key, icon, tip)
         self.a_open = A("열기…", self.open_dialog, QKeySequence.Open, QStyle.SP_DialogOpenButton,
                         "Main.py 또는 .ui 파일 열기 (파일을 창에 끌어다 놓아도 돼요)")
+        self.a_study = A("학습 폴더 관리…", self.manage_study_folders, None, None,
+                         "자주 여는 학습 폴더를 등록하면 파일 열기 창 왼쪽에 바로가기로 나와요")
         self.a_save = A("저장", self.save_py, QKeySequence.Save, QStyle.SP_DialogSaveButton)
         self.a_run = A("실행", self.run, "F5", QStyle.SP_MediaPlay, "Main.py 실행 (F5)")
         self.a_stop = A("중지", self.stop, "Shift+F5", QStyle.SP_MediaStop, "실행 중인 프로그램 끄기 (Shift+F5)")
@@ -168,6 +171,7 @@ class MainWindow(QMainWindow):
         m = mb.addMenu("파일(&F)")
         m.addAction(self.a_open)
         self.recent_menu = m.addMenu("최근 파일")
+        m.addAction(self.a_study)
         m.addAction(self.a_save)
         m.addSeparator()
         m.addAction(self.a_home)
@@ -573,9 +577,8 @@ class MainWindow(QMainWindow):
 
     # ---------------------------------------------------------- challenge
     def start_challenge(self):
-        start = str(self.ui_path.parent) if self.ui_path else self.settings.value("lastDir", "")
-        path, _ = QFileDialog.getOpenFileName(
-            self, "도전할 목표 화면 고르기 (.ui) — 예제나 정답(_sol) .ui", start, "Qt Designer (*.ui)")
+        path = self._pick_file("도전할 목표 화면 고르기 (.ui) — 예제나 정답(_sol) .ui", self.ui_path,
+                               "Qt Designer (*.ui)")
         if not path:
             return
         try:
@@ -665,11 +668,22 @@ class MainWindow(QMainWindow):
 
     # --------------------------------------------------------------- opening
     def open_dialog(self):
-        start = str(self.py_path.parent) if self.py_path else self.settings.value("lastDir", "")
-        path, _ = QFileDialog.getOpenFileName(self, "파이썬 파일 또는 .ui 열기", start,
-                                              "Python / UI (*.py *.ui);;모든 파일 (*.*)")
+        path = self._pick_file("파이썬 파일 또는 .ui 열기", self.py_path,
+                               "Python / UI (*.py *.ui);;모든 파일 (*.*)")
         if path:
             self.open_path(path)
+
+    def _pick_file(self, title, open_file, name_filter) -> str:
+        """Open dialog: starts in the open file's folder (else the last opened one), study folders on its left."""
+        folders = load_folders(self.settings)
+        start = start_dir(str(open_file.parent) if open_file else "", self.settings.value("lastDir", ""), folders)
+        return pick_file(self, title, start, name_filter, folders)
+
+    def manage_study_folders(self):
+        dlg = StudyFoldersDialog(load_folders(self.settings), self)
+        if dlg.exec_() == QDialog.Accepted:
+            save_folders(self.settings, dlg.folders())
+            self._status(f"학습 폴더 {len(dlg.folders())}개를 저장했어요. 파일 열기 창 왼쪽에 나와요.")
 
     def open_path(self, path) -> bool:
         p = Path(path).resolve()
@@ -738,21 +752,21 @@ class MainWindow(QMainWindow):
         self.tree.clear()
         self.panel.clear()
         if ui_path is None:
-            self.editor.set_names([])
+            self.editor.set_widgets({})
             self.preview.load(None, [])
             return
         try:
             self.model = UiModel(ui_path)
         except Exception as e:  # half-written file while Designer saves
             self._status(f"{ui_path.name} 를 읽지 못했어요: {e}")
-            self.editor.set_names([])
+            self.editor.set_widgets({})
             return
         try:
             self.generated = codeview.generate(ui_path)
         except Exception:
             self.generated = ""
         names = list(self.model.nodes)
-        self.editor.set_names(names)
+        self.editor.set_widgets({n: node.cls for n, node in self.model.nodes.items()})
         err = self.preview.load(ui_path, names)
         if err:
             self._status(f"미리보기 오류: {err}")

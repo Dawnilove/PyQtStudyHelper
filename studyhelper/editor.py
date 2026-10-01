@@ -1,13 +1,21 @@
-"""Main.py editor: line numbers, Python highlighting, hover on self.<widget>."""
+"""Main.py editor: line numbers, Python highlighting, hover on self.<widget>, autocomplete (Tab accepts)."""
 import keyword
 import re
+import threading
 
-from PyQt5.QtCore import QRect, QSize, Qt, QTimer, pyqtSignal
+from PyQt5.QtCore import QObject, QPoint, QRect, QSize, Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import (QColor, QFont, QPainter, QSyntaxHighlighter, QTextCharFormat,
                          QTextCursor, QTextFormat)
-from PyQt5.QtWidgets import QPlainTextEdit, QTextEdit, QToolTip, QWidget
+from PyQt5.QtWidgets import (QListWidget, QListWidgetItem, QPlainTextEdit, QStyle,
+                             QStyledItemDelegate, QTextEdit, QToolTip, QWidget)
+
+from .completer import Completer
 
 SELF_ATTR = re.compile(r"\bself\.(\w+)")
+WORD_BEFORE_CURSOR = re.compile(r"\w*$")
+COMPLETE_DELAY_MS = 150          # pause after the last keystroke before asking for candidates
+_KIND_ROLE = Qt.UserRole + 1
+_MODIFIER_KEYS = {Qt.Key_Shift, Qt.Key_Control, Qt.Key_Alt, Qt.Key_AltGr, Qt.Key_Meta, Qt.Key_CapsLock}
 
 
 class _Note:
@@ -78,6 +86,95 @@ class _LineArea(QWidget):
         self.editor.paint_line_area(e)
 
 
+class _CompletionWorker(QObject):
+    """Asks the Completer on its own thread (jedi can take seconds); only the newest request is answered."""
+    ready = pyqtSignal(int, list, int)           # request id, [completer.Item], length of the typed prefix
+
+    def __init__(self, completer):
+        super().__init__()
+        self._completer = completer
+        self._cv = threading.Condition()
+        self._job = None
+        threading.Thread(target=self._run, daemon=True).start()
+
+    def request(self, rid, source, line, col, force):
+        with self._cv:
+            self._job = (rid, source, line, col, force)
+            self._cv.notify()
+
+    def _run(self):
+        self._completer.warmup()                 # read the PyQt5 stubs now, not on the first keystroke
+        while True:
+            with self._cv:
+                while self._job is None:
+                    self._cv.wait()
+                (rid, source, line, col, force), self._job = self._job, None
+            try:
+                items, prefix_len = self._completer.complete(source, line, col, force)
+            except Exception:
+                items, prefix_len = [], 0
+            try:
+                self.ready.emit(rid, items, prefix_len)
+            except RuntimeError:                 # the editor is gone
+                return
+
+
+class _KindDelegate(QStyledItemDelegate):
+    """Draws the kind (위젯, 메서드, 시그널 …) grey on the right of each candidate."""
+
+    def paint(self, painter, option, index):
+        super().paint(painter, option, index)
+        painter.save()
+        selected = bool(option.state & QStyle.State_Selected)
+        painter.setPen(QColor("#dbe7ff" if selected else "#8c8c8c"))
+        painter.drawText(option.rect.adjusted(8, 0, -8, 0), Qt.AlignRight | Qt.AlignVCenter,
+                         index.data(_KIND_ROLE) or "")
+        painter.restore()
+
+
+class _CompletionPopup(QListWidget):
+    """Candidate list under the cursor. Never takes focus: the editor keeps getting the keys."""
+    MAX_ROWS = 10
+
+    def __init__(self, editor):
+        super().__init__(editor)
+        self.shown = []                          # completer.Item list in the order shown
+        self.setWindowFlags(Qt.ToolTip)
+        self.setAttribute(Qt.WA_ShowWithoutActivating)
+        self.setFocusPolicy(Qt.NoFocus)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setItemDelegate(_KindDelegate(self))
+        self.setStyleSheet("QListWidget { background: #ffffff; border: 1px solid #b8c4d6; }"
+                           "QListWidget::item:selected { background: #2f6fd6; color: #ffffff; }")
+
+    def set_items(self, items):
+        self.shown = list(items)
+        self.clear()
+        for it in self.shown:
+            row = QListWidgetItem(it.name)
+            row.setData(_KIND_ROLE, it.kind)
+            self.addItem(row)
+        self.setCurrentRow(0)
+        fm = self.fontMetrics()
+        width = max(fm.horizontalAdvance(i.name) + fm.horizontalAdvance(i.kind) for i in self.shown)
+        self.setFixedSize(min(width + 56, 560),
+                          min(len(self.shown), self.MAX_ROWS) * self.sizeHintForRow(0) + 4)
+
+    def narrow(self, prefix):
+        """Keep only the candidates that still match a longer prefix."""
+        low = prefix.lower()
+        keep = [i for i in self.shown if i.name.lower().startswith(low) and i.name != prefix]
+        if keep:
+            self.set_items(keep)
+        return bool(keep)
+
+    def move_selection(self, step):
+        self.setCurrentRow((self.currentRow() + step) % self.count())
+
+    def current_name(self):
+        return self.currentItem().text()
+
+
 class CodeEditor(QPlainTextEdit):
     nameHovered = pyqtSignal(str)
 
@@ -104,11 +201,133 @@ class CodeEditor(QPlainTextEdit):
         self.cursorPositionChanged.connect(self._apply)
         self._update_margin()
         self.viewport().setMouseTracking(True)
+        # autocomplete
+        self.completer = Completer()
+        self._popup = _CompletionPopup(self)
+        self._popup.itemClicked.connect(self._accept_completion)
+        self._worker = _CompletionWorker(self.completer)
+        self._worker.ready.connect(self._on_completions)
+        self._req_id = 0                 # bumped on every new ask / close, so late answers are ignored
+        self._asked_at = None            # (block, column) the newest ask was made at
+        self._prefix_len = 0             # how many typed letters Tab will replace
+        self._ask_timer = QTimer(self)
+        self._ask_timer.setSingleShot(True)
+        self._ask_timer.setInterval(COMPLETE_DELAY_MS)
+        self._ask_timer.timeout.connect(self._ask_completions)
 
     # --- names known from the .ui -------------------------------------
     def set_names(self, names):
         self.highlighter.names = set(names)
         self.highlighter.rehighlight()
+
+    def set_widgets(self, widgets):
+        """widgets: {object name: Qt class name} from the .ui — colours the names and feeds autocomplete."""
+        self.set_names(widgets)
+        self.completer.set_widgets(widgets)
+
+    # --- autocomplete ----------------------------------------------------
+    def completion_visible(self):
+        return self._popup.isVisible()
+
+    def completion_names(self):
+        return [i.name for i in self._popup.shown]
+
+    def hide_completion(self):
+        self._req_id += 1                # whatever is still being computed is no longer wanted
+        self._ask_timer.stop()
+        self._popup.hide()
+
+    def _ask_completions(self, force=False):
+        cur = self.textCursor()
+        if cur.hasSelection():
+            self.hide_completion()
+            return
+        self._req_id += 1
+        self._asked_at = (cur.blockNumber(), cur.positionInBlock())
+        self._worker.request(self._req_id, self.toPlainText(), *self._asked_at, force)
+
+    def _on_completions(self, rid, items, prefix_len):
+        cur = self.textCursor()
+        if rid != self._req_id or self._asked_at != (cur.blockNumber(), cur.positionInBlock()):
+            return                       # the user typed on since this was asked
+        if not items:
+            self._popup.hide()
+            return
+        self._prefix_len = prefix_len
+        self._popup.setFont(self.font())
+        self._popup.set_items(items)
+        self._place_popup()
+        self._popup.show()
+
+    def _place_popup(self):
+        rect = self.cursorRect()
+        cur = self.textCursor()
+        col = cur.positionInBlock()
+        typed = cur.block().text()[max(0, col - self._prefix_len):col]
+        x = rect.left() - self.fontMetrics().horizontalAdvance(typed)     # line up with the start of the word
+        pos = self.viewport().mapToGlobal(QPoint(x, rect.bottom() + 2))
+        if pos.y() + self._popup.height() > self.screen().availableGeometry().bottom():
+            pos.setY(self.viewport().mapToGlobal(QPoint(0, rect.top())).y() - self._popup.height() - 2)
+        self._popup.move(pos)
+
+    def _accept_completion(self, *_):
+        if not self._popup.isVisible() or self._popup.currentItem() is None:
+            return
+        name = self._popup.current_name()
+        cur = self.textCursor()
+        cur.beginEditBlock()             # one Ctrl+Z undoes the whole completion
+        cur.movePosition(QTextCursor.Left, QTextCursor.KeepAnchor, self._prefix_len)
+        cur.insertText(name)
+        cur.endEditBlock()
+        self.setTextCursor(cur)
+        self.hide_completion()
+
+    def keyPressEvent(self, e):
+        key, mods = e.key(), e.modifiers()
+        if key == Qt.Key_Space and mods == Qt.ControlModifier:
+            self._ask_timer.stop()
+            self._ask_completions(force=True)
+            return
+        if self._popup.isVisible():
+            if key == Qt.Key_Tab and mods == Qt.NoModifier:
+                self._accept_completion()
+                return
+            if key in (Qt.Key_Down, Qt.Key_Up):
+                self._popup.move_selection(1 if key == Qt.Key_Down else -1)
+                return
+            if key == Qt.Key_Escape:
+                self.hide_completion()
+                return
+        super().keyPressEvent(e)
+        self._after_key(e)
+
+    def _after_key(self, e):
+        """Decide what the key just typed means for the popup."""
+        key, text = e.key(), e.text()
+        if key in _MODIFIER_KEYS:
+            return
+        if text and (text.isalnum() or text == "_"):
+            if self._popup.isVisible():          # keep Tab safe while the new answer is on its way
+                cur = self.textCursor()
+                prefix = WORD_BEFORE_CURSOR.search(cur.block().text()[:cur.positionInBlock()]).group()
+                if self._popup.narrow(prefix):
+                    self._prefix_len = len(prefix)
+                else:
+                    self._popup.hide()
+            self._ask_timer.start()
+        elif text == "." or key in (Qt.Key_Backspace, Qt.Key_Delete):
+            self._popup.hide()
+            self._ask_timer.start()
+        else:
+            self.hide_completion()
+
+    def mousePressEvent(self, e):
+        self.hide_completion()
+        super().mousePressEvent(e)
+
+    def focusOutEvent(self, e):
+        self.hide_completion()
+        super().focusOutEvent(e)
 
     # --- hover ----------------------------------------------------------
     def name_at(self, pos):

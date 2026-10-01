@@ -62,6 +62,8 @@ API 키·노트 폴더는 각자 앱에서 설정 (zip에는 들어 있지 않�
 - **objectName 바꾸기** (F2, 위젯 트리 우클릭): `.ui`의 이름과 모든 참조(시그널/슬롯 편집기, 탭 순서, 버튼 그룹, 메뉴 액션)와 Main.py의 `self.이름`을 한꺼번에 바꿈. 최상위 창이면 `Ui_클래스` 이름과 import 줄까지. 미리보기 후 적용, Main.py는 Ctrl+Z로 되돌리기.
 - **도전 모드** (Ctrl+T): 목표 화면 `.ui`(예제·정답)를 고르면 왼쪽에 목표 화면, 오른쪽에 체크리스트. [빈 .ui 만들어서 시작] → Designer에서 만들고 저장할 때마다 위젯 종류·개수, 레이아웃, 글자, (보너스) objectName을 자동 채점.
 - **색 범례**: 코드 아래에 색 표시 뜻이 늘 보임 (보기 → 색 범례 보기로 끄기).
+- **자동완성**: Main.py를 칠 때 후보 목록이 뜨고 **Tab**으로 완성 (Enter는 그냥 줄바꿈). `self.` 뒤에는 `.ui`의 위젯 이름, `self.위젯.` 뒤에는 그 위젯 클래스의 메서드·시그널(`clicked`, `setText` …), 그 밖에는 PyQt5 클래스·변수·키워드. ↑↓ 선택, Esc 닫기, Ctrl+Space로 직접 열기. 주석·문자열 안에서는 안 뜸. `jedi`가 없으면 위젯 이름·키워드·파일 안 단어만 나옴. 자세한 개발 기록은 `docs/autocomplete-process.md`.
+- **학습 폴더 등록**: 파일 → 학습 폴더 관리…에서 자주 쓰는 폴더를 등록하면 파일 열기 창(와 도전 모드의 .ui 고르기 창) **왼쪽 바로가기**에 맨 위로 나옴. 파일 열기 창은 열린 파일의 폴더 → 마지막에 연 폴더 → 첫 학습 폴더 순으로 시작하고, 그 폴더가 없어졌으면 다음 순위로 넘어감. 바로가기를 보여 주려고 윈도우 기본 창 대신 Qt 자체 파일 창을 씀.
 - **편의 기능**: 시작 화면과 최근 파일, 메뉴·단축키(F1 사용법), Ctrl+휠로 코드 글자 크기, 보기 → 화면 배치 초기화, 현재 줄 강조.
 
 ## 단계 계획
@@ -82,7 +84,9 @@ tools/make_shortcut.py     바탕화면 아이콘 만들기
 studyhelper/
   mainwindow.py            화면 조립, 파일 감시, 실행
   preview.py               미리보기 + 빨간 강조 오버레이
-  editor.py                Main.py 편집기 (줄 번호, 하이라이트, hover)
+  editor.py                Main.py 편집기 (줄 번호, 하이라이트, hover, 자동완성 팝업)
+  completer.py             자동완성 후보 만들기 (.ui 위젯, Qt 메서드·시그널, jedi)
+  studyfolders.py          학습 폴더 등록, 파일 열기 창 시작 폴더·왼쪽 바로가기
   props.py                 속성 패널
   ui_model.py              .ui XML → 위젯 트리
   locate.py                .py ↔ .ui 찾기
@@ -96,4 +100,6 @@ studyhelper/
   notes.py                 Obsidian 강의노트 검색·열기
   renamedialog.py          objectName 바꾸기
   challenge.py             도전 모드
+tests/                     자동 테스트: python -m unittest discover -s tests -t .
+docs/                      개발 기록 (AI·사람이 읽는 markdown)
 ```
