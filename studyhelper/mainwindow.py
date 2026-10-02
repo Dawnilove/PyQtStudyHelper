@@ -2,6 +2,7 @@
 import os
 import shutil
 import sys
+import time
 from html import escape
 from pathlib import Path
 
@@ -11,7 +12,7 @@ from PyQt5.QtCore import (QFileSystemWatcher, QProcess, QProcessEnvironment, QSe
 from PyQt5.QtCore import QUrl
 from PyQt5.QtGui import QColor, QDesktopServices, QFont, QKeySequence, QTextCursor
 from PyQt5.QtCore import pyqtSignal
-from PyQt5.QtWidgets import (QAction, QComboBox, QFileDialog, QLabel, QListWidget, QListWidgetItem,
+from PyQt5.QtWidgets import (QAction, QComboBox, QDialog, QFileDialog, QLabel, QListWidget, QListWidgetItem,
                              QMainWindow, QMessageBox, QPlainTextEdit, QSizePolicy, QSplitter, QStyle,
                              QTabWidget, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
                              QStackedWidget, QPushButton, QHBoxLayout, QTextBrowser, QMenu)
@@ -26,6 +27,8 @@ from .editor import CodeEditor
 from .locate import class_ui_ranges, import_mismatch, main_py_in, py_for_ui, read_text, ui_candidates
 from .preview import PreviewPane
 from .props import PropertyPanel
+from .studyfolders import (MainFilesScanner, StudyFoldersDialog, existing_folders, load_folders, main_label,
+                           pick_file, save_folders, start_dir)
 from .ui_model import UiModel
 
 
@@ -109,6 +112,9 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.settings = QSettings("PyQtStudyHelper", "PyQtStudyHelper")
+        self.scanner = MainFilesScanner(self)      # finds the study folders' Main files without freezing the window
+        self.scanner.ready.connect(lambda _: self._fill_recent())
+        self._scan_at = 0.0
         self.py_path: Path | None = None
         self.ui_path: Path | None = None
         self.encoding, self.crlf = "utf-8", True
@@ -139,6 +145,8 @@ class MainWindow(QMainWindow):
         A = lambda text, slot, key=None, icon=None, tip=None: self._action(text, slot, key, icon, tip)
         self.a_open = A("열기…", self.open_dialog, QKeySequence.Open, QStyle.SP_DialogOpenButton,
                         "Main.py 또는 .ui 파일 열기 (파일을 창에 끌어다 놓아도 돼요)")
+        self.a_study = A("학습 폴더 관리…", self.manage_study_folders, None, None,
+                         "자주 여는 학습 폴더를 등록하면 파일 열기 창 왼쪽에 바로가기로 나와요")
         self.a_save = A("저장", self.save_py, QKeySequence.Save, QStyle.SP_DialogSaveButton)
         self.a_run = A("실행", self.run, "F5", QStyle.SP_MediaPlay, "Main.py 실행 (F5)")
         self.a_stop = A("중지", self.stop, "Shift+F5", QStyle.SP_MediaStop, "실행 중인 프로그램 끄기 (Shift+F5)")
@@ -170,6 +178,7 @@ class MainWindow(QMainWindow):
         m = mb.addMenu("파일(&F)")
         m.addAction(self.a_open)
         self.recent_menu = m.addMenu("최근 파일")
+        m.addAction(self.a_study)
         m.addAction(self.a_save)
         m.addSeparator()
         m.addAction(self.a_home)
@@ -400,11 +409,62 @@ class MainWindow(QMainWindow):
             it.setData(Qt.UserRole, x)
             it.setToolTip(x)
             self.recent_list.addItem(it)
-        self.recent_menu.setEnabled(bool(recent))
         if not recent:
             it = QListWidgetItem("(아직 없음)")
             it.setFlags(Qt.NoItemFlags)
             self.recent_list.addItem(it)
+        has_study = self._fill_study_sections(separator=bool(recent))
+        self.recent_menu.setEnabled(bool(recent) or has_study)
+
+    def _fill_study_sections(self, separator: bool) -> bool:
+        """Under the real recent files: one section per study folder listing its Main files.
+
+        These are searched by `self.scanner`, shown only, and never written into the saved "recent" list.
+        """
+        folders = existing_folders(load_folders(self.settings))
+        for i, folder in enumerate(folders):
+            name = Path(folder).name or folder
+            found = self.scanner.result.get(folder)
+            if found is None:
+                note, files = "(찾는 중…)", []
+            elif not found:
+                note, files = "(Main 파일이 없어요)", []
+            else:
+                note, files = f"({len(found)}개)", found
+            header = QListWidgetItem(f"학습 폴더 — {name}   {note}")
+            header.setFlags(Qt.NoItemFlags)
+            font = header.font()
+            font.setBold(True)
+            header.setFont(font)
+            header.setForeground(QColor("#555555"))
+            header.setToolTip(folder)
+            self.recent_list.addItem(header)
+
+            if i == 0 and separator:
+                self.recent_menu.addSeparator()
+            sub = self.recent_menu.addMenu(f"학습 폴더 — {name}")
+            sub.setToolTipsVisible(True)
+            if not files:
+                sub.addAction(note).setEnabled(False)
+            for x in files:
+                label = main_label(folder, x)
+                it = QListWidgetItem(label)
+                it.setData(Qt.UserRole, x)
+                it.setToolTip(x)
+                self.recent_list.addItem(it)
+                a = sub.addAction(label)
+                a.setToolTip(x)
+                a.triggered.connect(lambda _=False, x=x: self.open_path(x))
+        return bool(folders)
+
+    def _rescan_study(self, force=False):
+        """Search the study folders for Main files again (at most every 30 s unless forced)."""
+        now = time.monotonic()
+        if not force and now - self._scan_at < 30:
+            return
+        self._scan_at = now
+        self.scanner.scan(load_folders(self.settings))
+        self._fill_recent()                        # shows "찾는 중…" right away
 
     def _on_page_changed(self, idx):
         on = idx == 1
@@ -412,6 +472,8 @@ class MainWindow(QMainWindow):
                   self.a_zoom_in, self.a_zoom_out, self.a_zoom_reset):
             a.setEnabled(on)
         self.ui_combo.setEnabled(on)
+        if idx == 0:
+            self._rescan_study()                   # also runs once at start-up, when the start screen is built
 
     # --------------------------------------------------------------- view
     def zoom(self, step):
@@ -589,9 +651,8 @@ class MainWindow(QMainWindow):
 
     # ---------------------------------------------------------- challenge
     def start_challenge(self):
-        start = str(self.ui_path.parent) if self.ui_path else self.settings.value("lastDir", "")
-        path, _ = QFileDialog.getOpenFileName(
-            self, "도전할 목표 화면 고르기 (.ui) — 예제나 정답(_sol) .ui", start, "Qt Designer (*.ui)")
+        path = self._pick_file("도전할 목표 화면 고르기 (.ui) — 예제나 정답(_sol) .ui", self.ui_path,
+                               "Qt Designer (*.ui)")
         if not path:
             return
         try:
@@ -687,11 +748,23 @@ class MainWindow(QMainWindow):
 
     # --------------------------------------------------------------- opening
     def open_dialog(self):
-        start = str(self.py_path.parent) if self.py_path else self.settings.value("lastDir", "")
-        path, _ = QFileDialog.getOpenFileName(self, "파이썬 파일 또는 .ui 열기", start,
-                                              "Python / UI (*.py *.ui);;모든 파일 (*.*)")
+        path = self._pick_file("파이썬 파일 또는 .ui 열기", self.py_path,
+                               "Python / UI (*.py *.ui);;모든 파일 (*.*)")
         if path:
             self.open_path(path)
+
+    def _pick_file(self, title, open_file, name_filter) -> str:
+        """Open dialog: starts in the open file's folder (else the last opened one), study folders on its left."""
+        folders = load_folders(self.settings)
+        start = start_dir(str(open_file.parent) if open_file else "", self.settings.value("lastDir", ""), folders)
+        return pick_file(self, title, start, name_filter, folders)
+
+    def manage_study_folders(self):
+        dlg = StudyFoldersDialog(load_folders(self.settings), self)
+        if dlg.exec_() == QDialog.Accepted:
+            save_folders(self.settings, dlg.folders())
+            self._rescan_study(force=True)
+            self._status(f"학습 폴더 {len(dlg.folders())}개를 저장했어요. 파일 열기 창 왼쪽에 나와요.")
 
     def open_path(self, path) -> bool:
         p = Path(path).resolve()
@@ -762,14 +835,14 @@ class MainWindow(QMainWindow):
         self.tree.clear()
         self.panel.clear()
         if ui_path is None:
-            self.editor.set_names([])
+            self.editor.set_widgets({})
             self.preview.load(None, [])
             return
         try:
             self.model = UiModel(ui_path)
         except Exception as e:  # half-written file while Designer saves
             self._status(f"{ui_path.name} 를 읽지 못했어요: {e}")
-            self.editor.set_names([])
+            self.editor.set_widgets({})
             return
         try:
             self.generated = codeview.generate(ui_path)
@@ -777,10 +850,10 @@ class MainWindow(QMainWindow):
             self.generated = ""
         names = list(self.model.nodes)
         self._models[ui_path] = (ui_path.stat().st_mtime, self.model)
-        all_names = set(names)
+        all_widgets = {}                      # every .ui this file uses: colours the names, feeds autocomplete
         for m in self.all_models().values():
-            all_names |= set(m.nodes)
-        self.editor.set_names(all_names)
+            all_widgets.update({n: node.cls for n, node in m.nodes.items()})
+        self.editor.set_widgets(all_widgets)
         cls = self.class_for_ui(ui_path)
         many = len(self.all_models()) > 1
         self.preview_box.title_label.setText(

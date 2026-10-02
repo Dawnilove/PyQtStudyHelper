@@ -3,3 +3,4 @@ keyring            # stores API keys in Windows Credential Manager
 google-genai       # AI: Gemini (free tier)
 openai             # AI: GPT, and local Ollama
 anthropic>=1.11    # AI: Claude
+jedi>=0.19         # autocomplete: PyQt5 / Python names (optional: editor still works without it)
