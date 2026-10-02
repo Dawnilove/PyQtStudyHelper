@@ -176,7 +176,7 @@ class _CompletionPopup(QListWidget):
 
 
 class CodeEditor(QPlainTextEdit):
-    nameHovered = pyqtSignal(str)
+    nameHovered = pyqtSignal(str, int)       # name, block number (to know which class/.ui it's in)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -383,7 +383,7 @@ class CodeEditor(QPlainTextEdit):
             return
         name = self.name_at(e.pos())
         if name and name != self._hover:
-            self.nameHovered.emit(name)
+            self.nameHovered.emit(name, self.cursorForPosition(e.pos()).blockNumber())
             if self.tooltip_for:
                 QToolTip.showText(e.globalPos(), self.tooltip_for(name), self.viewport())
         elif not name:

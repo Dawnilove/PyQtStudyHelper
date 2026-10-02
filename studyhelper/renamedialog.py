@@ -7,15 +7,21 @@ from PyQt5.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox, QLabel, QLine
                              QPlainTextEdit, QVBoxLayout)
 
 
-def plan_py_rename(src: str, old: str, new: str, is_top: bool) -> tuple[str, list]:
-    """(new source, [(line_no, before, after)]) — renames self.old, and Ui_old for the top widget."""
+def plan_py_rename(src: str, old: str, new: str, is_top: bool, allowed=None) -> tuple[str, list]:
+    """(new source, [(line_no, before, after)]) — renames self.old, and Ui_old for the top widget.
+
+    allowed: set of line numbers that may change (the classes built from this .ui), None = all.
+    """
     pats = [(re.compile(rf"\bself\.{re.escape(old)}\b"), f"self.{new}")]
     if is_top:   # pyuic names the class Ui_<top objectName>
         pats.append((re.compile(rf"\bUi_{re.escape(old)}\b"), f"Ui_{new}"))
     out, changes = [], []
     for i, line in enumerate(src.split("\n")):
         after = line
-        for rx, rep in pats:
+        if allowed is None or i in allowed:
+            for rx, rep in pats[:1]:
+                after = rx.sub(rep, after)
+        for rx, rep in pats[1:]:          # Ui_<class> appears in import lines outside the class
             after = rx.sub(rep, after)
         if after != line:
             changes.append((i, line, after))
@@ -24,9 +30,10 @@ def plan_py_rename(src: str, old: str, new: str, is_top: bool) -> tuple[str, lis
 
 
 class RenameDialog(QDialog):
-    def __init__(self, old, cls, names, src, is_top, parent=None):
+    def __init__(self, old, cls, names, src, is_top, parent=None, allowed=None):
         super().__init__(parent)
         self.old, self.names, self.src, self.is_top = old, set(names), src, is_top
+        self.allowed = allowed
         self.new_src, self.changes = src, []
         self.setWindowTitle("objectName 바꾸기")
         self.setMinimumWidth(640)
@@ -83,7 +90,7 @@ class RenameDialog(QDialog):
             ok.setEnabled(False)
             self.preview.clear()
             return
-        self.new_src, self.changes = plan_py_rename(self.src, self.old, new, self.is_top)
+        self.new_src, self.changes = plan_py_rename(self.src, self.old, new, self.is_top, self.allowed)
         warn = []
         if self.is_top:
             warn.append(f"최상위 위젯이라 pyuic가 만드는 클래스 이름도 Ui_{self.old} → Ui_{new} 로 바뀌어요. "

@@ -24,7 +24,7 @@ from .signaldialog import SignalInsertDialog
 from .ui_model import rename_object, set_property
 from .explainpanel import AiPanel, AiSettingsDialog, LineExplainView
 from .editor import CodeEditor
-from .locate import import_mismatch, main_py_in, py_for_ui, read_text, ui_candidates
+from .locate import class_ui_ranges, import_mismatch, main_py_in, py_for_ui, read_text, ui_candidates
 from .preview import PreviewPane
 from .props import PropertyPanel
 from .studyfolders import (MainFilesScanner, StudyFoldersDialog, existing_folders, load_folders, main_label,
@@ -125,6 +125,8 @@ class MainWindow(QMainWindow):
         self._stderr = ""
         self._mismatch = None
         self._names_cache = {}           # ui path -> (mtime, names, top class)
+        self._models = {}                # ui path -> (mtime, UiModel): every .ui this file uses
+        self._class_ranges = []          # [(first, last, ui path, class name)] from class_ui_ranges
         self.setAcceptDrops(True)
 
         self.resize(1500, 900)
@@ -155,6 +157,8 @@ class MainWindow(QMainWindow):
                            "선택한 줄(없으면 현재 줄)을 AI가 설명 (Ctrl+E)")
         self.a_review = A("AI 코드 리뷰", self.ai_review, "Ctrl+Shift+R", None, "Main.py 전체 리뷰")
         self.a_ai_settings = A("AI 모델·키 설정…", self.ai_settings)
+        self.a_free_ai = A("무료 AI 켜기 (Gemini)…", self.free_ai, None, None,
+                           "구글 계정만 있으면 무료 — 키를 한 번 연결하면 답이 도우미 안에 바로 나와요")
         self.a_zoom_in = A("글자 크게", lambda: self.zoom(1), QKeySequence.ZoomIn)
         self.a_zoom_out = A("글자 작게", lambda: self.zoom(-1), QKeySequence.ZoomOut)
         self.a_zoom_reset = A("글자 크기 원래대로", lambda: self.zoom(0), "Ctrl+0")
@@ -192,6 +196,7 @@ class MainWindow(QMainWindow):
         for a in (self.a_explain, self.a_review):
             m.addAction(a)
         m.addSeparator()
+        m.addAction(self.a_free_ai)
         m.addAction(self.a_ai_settings)
         m = mb.addMenu("보기(&V)")
         for a in (self.a_zoom_in, self.a_zoom_out, self.a_zoom_reset):
@@ -238,7 +243,7 @@ class MainWindow(QMainWindow):
         self.tree.customContextMenuRequested.connect(self._tree_menu)
 
         self.editor = CodeEditor()
-        self.editor.nameHovered.connect(lambda n: self.select(n, "hover"))
+        self.editor.nameHovered.connect(lambda n, line: self.select(n, "hover", line))
         self.editor.tooltip_for = self._tooltip_for
         self.editor.document().modificationChanged.connect(lambda _: self._update_title())
         self.editor.cursorPositionChanged.connect(self._on_cursor_moved)
@@ -259,6 +264,7 @@ class MainWindow(QMainWindow):
         self.line_view.anchorClicked.connect(lambda url: self.open_note(url.toString()))
         self.ai_panel = AiPanel()
         self.ai_panel.settingsRequested.connect(self.ai_settings)
+        self.ai_panel.freeAiRequested.connect(self.free_ai)
         self.ai_panel.explainRequested.connect(self.ai_explain)
         self.ai_panel.reviewRequested.connect(self.ai_review)
         self.explain_tabs = QTabWidget()
@@ -274,7 +280,8 @@ class MainWindow(QMainWindow):
         self.bottom.addTab(self.issue_list, "검사")
 
         left = QSplitter(Qt.Vertical)
-        left.addWidget(_titled("실시간 미리보기 · 위젯을 클릭하면 선택", self.preview))
+        self.preview_box = _titled("실시간 미리보기 · 위젯을 클릭하면 선택", self.preview)
+        left.addWidget(self.preview_box)
         left.addWidget(_titled("위젯 트리 · 흐린 이름 = Main.py에서 아직 안 씀", self.tree))
         left.setSizes([520, 300])
         self.editor_box = _titled("Main.py", self.editor)
@@ -322,6 +329,7 @@ class MainWindow(QMainWindow):
         self.statusBar().addPermanentWidget(self.ai_status)
         self._update_ai_status()
         self._fill_recent()
+        self._follow_timer = QTimer(self, singleShot=True, interval=250, timeout=self._follow_cursor_ui)
 
     def _action(self, text, slot, key=None, icon=None, tip=None) -> QAction:
         a = QAction(text, self)
@@ -517,6 +525,15 @@ class MainWindow(QMainWindow):
     def _on_cursor_moved(self):
         lines = self.editor.toPlainText().split("\n")
         self.line_view.show_line(lines, self.editor.textCursor().blockNumber())
+        self._follow_timer.start()
+
+    def _follow_cursor_ui(self):
+        """Cursor inside `class dlgForm(QDialog, Ui_Dialog)` -> show dialog.ui."""
+        if self.stack.currentIndex() != 1:
+            return
+        p = self.ui_for_line(self.editor.textCursor().blockNumber())
+        if p is not None and p != self.ui_path:
+            self.switch_ui(p)
 
     def _editor_menu(self, pos):
         menu = self.editor.createStandardContextMenu()
@@ -531,13 +548,15 @@ class MainWindow(QMainWindow):
     def _ai_context(self) -> str:
         lines = self.editor.toPlainText().split("\n")
         numbered = "\n".join(f"{i + 1:>4}| {l}" for i, l in enumerate(lines))
-        widgets = ""
-        if self.model:
+        parts = []
+        for path, model in self.all_models().items():
+            owners = ", ".join(c for _, _, p, c in self._class_ranges if p == path)
             widgets = "\n".join(f"- {n.name}: {n.cls} ({n.position_text()})"
-                                for n in self.model.nodes.values() if n.kind != "layout")
-        ui_name = self.ui_path.name if self.ui_path else "(없음)"
+                                 for n in model.nodes.values() if n.kind != "layout")
+            parts.append(f"<ui_widgets file='{path.name}'" + (f" used_by_class='{owners}'" if owners else "")
+                         + f">\n{widgets}\n</ui_widgets>")
         return (f"<code file='{self.py_path.name if self.py_path else 'Main.py'}'>\n{numbered}\n</code>\n"
-                f"<ui_widgets file='{ui_name}'>\n{widgets}\n</ui_widgets>")
+                + ("\n".join(parts) or "<ui_widgets>(없음)</ui_widgets>"))
 
     def ai_explain(self):
         if not self.py_path:
@@ -563,19 +582,30 @@ class MainWindow(QMainWindow):
         self.explain_tabs.setCurrentWidget(self.ai_panel)
         self.ai_panel.start(self._ai_context(), ai.REVIEW_TASK, f"{self.py_path.name} 전체 리뷰")
 
+    def free_ai(self):
+        from .freeai import FreeAiDialog
+        dlg = FreeAiDialog(self)
+        dlg.exec_()
+        self._update_ai_status()
+        if dlg.done_ok:
+            self.ai_panel.show_welcome()
+            self.explain_tabs.setCurrentWidget(self.ai_panel)
+            self._status("무료 AI(Gemini)가 연결됐어요. 코드를 선택하고 Ctrl+E를 눌러 보세요.", 10000)
+
     def ai_settings(self):
         if AiSettingsDialog(self).exec_():
             self._update_ai_status()
             if not self.ai_panel.history:
                 self.ai_panel.show_welcome()
             else:
-                self.ai_panel.b_model.setText(f"모델: {ai.get_model().replace('ollama:', '')}  ⚙")
+                self.ai_panel.b_model.setText(f"AI: {ai.short_name(ai.get_model())} · 설정")
 
     # ------------------------------------------------- signal helper / .ui edit
     def insert_signal(self, widget, sig, all_sigs):
         if not self.py_path:
             return
-        dlg = SignalInsertDialog(self.editor.toPlainText(), widget, sig, all_sigs, self)
+        dlg = SignalInsertDialog(self.editor.toPlainText(), widget, sig, all_sigs, self,
+                                 target_class=self.class_for_ui(self.ui_path))
         if not dlg.exec_() or dlg.plan is None:
             return
         if dlg.plan.existing is not None:
@@ -675,8 +705,13 @@ class MainWindow(QMainWindow):
             self._status("먼저 미리보기·위젯 트리에서 위젯을 선택해 주세요.")
             return
         node = self.model.nodes[self.sel]
+        allowed = None
+        shared = any(node.name in m.nodes for p, m in self.all_models().items() if p != self.ui_path)
+        mine = [(a, b) for a, b, p, _ in self._class_ranges if p == self.ui_path]
+        if shared and mine:          # same name in another .ui: only touch this .ui's classes
+            allowed = {i for a, b in mine for i in range(a, b + 1)}
         dlg = RenameDialog(node.name, node.cls, self.model.nodes.keys(), self.editor.toPlainText(),
-                           node is self.model.top, self)
+                           node is self.model.top, self, allowed=allowed)
         if not dlg.exec_():
             return
         old, new = node.name, dlg.new
@@ -698,6 +733,7 @@ class MainWindow(QMainWindow):
         if dlg.save_py.isChecked() and self.editor.document().isModified():
             self.save_py()
         self.sel = new
+        self._models.pop(self.ui_path, None)
         self.load_ui(self.ui_path)
         self._status(f"{old} → {new}: .ui {n}곳, Main.py {len(dlg.changes)}줄 바꿨어요. "
                      "(Designer에서 이 파일을 열어 두었다면 Designer에서 다시 열어 주세요)", 12000)
@@ -710,7 +746,7 @@ class MainWindow(QMainWindow):
 
     def _update_ai_status(self):
         m = ai.get_model()
-        self.ai_status.setText(f"AI: {m.replace('ollama:', '내 PC ')}" if ai.ready(m)
+        self.ai_status.setText(f"AI: {ai.short_name(m)}" if ai.ready(m)
                                else "AI: 설정 필요 (AI 메뉴 → 모델·키 설정)")
 
     def _update_title(self):
@@ -771,6 +807,8 @@ class MainWindow(QMainWindow):
         self.editor.document().setModified(False)
 
         cands = ui_candidates(p)
+        self._models = {}
+        self._update_class_ranges()
         self.ui_combo.clear()
         for c in cands:
             self.ui_combo.addItem(c.name, str(c))
@@ -825,7 +863,20 @@ class MainWindow(QMainWindow):
         except Exception:
             self.generated = ""
         names = list(self.model.nodes)
-        self.editor.set_widgets({n: node.cls for n, node in self.model.nodes.items()})
+        self._models[ui_path] = (ui_path.stat().st_mtime, self.model)
+        all_widgets = {}                      # every .ui this file uses: colours the names, feeds autocomplete
+        for m in self.all_models().values():
+            all_widgets.update({n: node.cls for n, node in m.nodes.items()})
+        self.editor.set_widgets(all_widgets)
+        cls = self.class_for_ui(ui_path)
+        many = len(self.all_models()) > 1
+        self.preview_box.title_label.setText(
+            f"<b>실시간 미리보기 · {escape(ui_path.name)}</b>"
+            + (f" <span style='color:#555'>({escape(cls)} 클래스)</span>" if cls and many else "")
+            + (" <span style='color:#888'>· 다른 .ui는 그 클래스 안을 클릭하면 바뀌어요</span>" if many else ""))
+        idx = self.ui_combo.findData(str(ui_path))
+        if idx >= 0 and idx != self.ui_combo.currentIndex():
+            self.ui_combo.setCurrentIndex(idx)
         err = self.preview.load(ui_path, names)
         if err:
             self._status(f"미리보기 오류: {err}")
@@ -870,8 +921,67 @@ class MainWindow(QMainWindow):
         self.tree.expandAll()
 
     # ------------------------------------------------------------ selection
-    def select(self, name, source):
-        if not name or self.model is None or name not in self.model.nodes:
+    # ----------------------------------------------------- several .ui per file
+    def all_models(self) -> dict:
+        """{ui path: UiModel} for every .ui the file uses (cached by mtime)."""
+        out = {}
+        if not self.py_path:
+            return out
+        paths = ui_candidates(self.py_path, include_folder=False)
+        if self.ui_path and self.ui_path not in paths:
+            paths.append(self.ui_path)
+        for p in paths:
+            try:
+                mt = p.stat().st_mtime
+                c = self._models.get(p)
+                if c is None or c[0] != mt:
+                    c = (mt, UiModel(p))
+                    self._models[p] = c
+                out[p] = c[1]
+            except Exception:
+                continue
+        return out
+
+    def _update_class_ranges(self):
+        if not self.py_path:
+            self._class_ranges = []
+            return
+        self._class_ranges = class_ui_ranges(self.editor.toPlainText(), self.py_path.parent,
+                                             list(self.all_models()))
+
+    def ui_for_line(self, line):
+        for a, b, p, _ in self._class_ranges:
+            if a <= line <= b:
+                return p
+        return None
+
+    def class_for_ui(self, ui_path):
+        return next((c for _, _, p, c in self._class_ranges if p == ui_path), None)
+
+    def switch_ui(self, path):
+        idx = self.ui_combo.findData(str(path))
+        if idx < 0:
+            self.ui_combo.addItem(path.name, str(path))
+        self.load_ui(path)
+        self._watch()
+
+    def select(self, name, source, line=None):
+        if not name:
+            return
+        target = None
+        models = self.all_models() if (self.model is None or name not in self.model.nodes
+                                       or line is not None) else {}
+        if line is not None:
+            p = self.ui_for_line(line)
+            if p is not None and p in models and name in models[p].nodes:
+                target = p
+        if target is None and (self.model is None or name not in self.model.nodes):
+            target = next((p for p, m in models.items() if name in m.nodes), None)
+        if target is not None and target != self.ui_path:
+            self.sel = name
+            self.switch_ui(target)                 # load_ui re-selects self.sel
+            return
+        if self.model is None or name not in self.model.nodes:
             return
         if name == self.sel and source == "hover":
             return
@@ -1099,6 +1209,7 @@ class MainWindow(QMainWindow):
     def run_check(self):
         if not self.py_path:
             return
+        self._update_class_ranges()
         text = self.editor.toPlainText()
         names, tops = self._all_ui_names()
         extra = []

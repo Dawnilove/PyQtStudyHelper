@@ -109,7 +109,11 @@ class PreviewPane(QScrollArea):
             self.root = w
             self._lay.addWidget(w)
             return str(e)
+        designed = w.size()                       # the geometry set in Designer
         w.setParent(self.host, Qt.Widget)
+        # A form without a layout (widgets placed at fixed x/y) has no size hint and would
+        # collapse to 0×0 inside our layout — keep it at the size it has in Designer.
+        w.setMinimumSize(designed.boundedTo(w.maximumSize()))
         self._lay.addWidget(w)
         self.root = w
         for o in [w] + w.findChildren(QWidget):

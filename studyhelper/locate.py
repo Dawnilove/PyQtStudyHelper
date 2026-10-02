@@ -163,3 +163,76 @@ def import_mismatch(py_path) -> tuple[int, str] | None:
                     f"pyuic로 변환하는 건 {conv} 인데 import하는 건 '{n.module}' 예요 → "
                     f"{n.module}.ui 를 고쳐도 {n.module}.py 가 다시 만들어지지 않아요.")
     return None
+
+
+def _string_consts(tree) -> dict:
+    consts = {}
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Assign) and isinstance(n.value, ast.Constant) and isinstance(n.value.value, str):
+            for t in n.targets:
+                if isinstance(t, ast.Name):
+                    consts[t.id] = n.value.value
+    return consts
+
+
+def class_ui_ranges(src: str, folder, ui_paths) -> list[tuple[int, int, Path, str]]:
+    """Which .ui each class in the file is built from: [(first line, last line (0-based), ui, class name)].
+
+    A class is tied to a .ui by its Ui_ base class:
+      from dialog import Ui_Dialog      ->  class dlgForm(QDialog, Ui_Dialog)  ->  dialog.ui
+      form_class, base = uic.loadUiType('gui.ui')  ->  class Form(base, form_class)  ->  gui.ui
+    and, as a fallback, by the <class> name pyuic uses (Ui_<class>).
+    """
+    try:
+        tree = ast.parse(src)
+    except SyntaxError:
+        return []
+    folder = Path(folder)
+    known = [Path(p).resolve() for p in ui_paths]
+    name_ui: dict[str, Path] = {}
+
+    # fallback: Ui_<class element> of every known .ui
+    import xml.etree.ElementTree as ET
+    for p in known:
+        try:
+            c = ET.parse(p).getroot().findtext("class")
+        except Exception:
+            continue
+        if c:
+            name_ui.setdefault(f"Ui_{c}", p)
+
+    consts = _string_consts(tree)
+    for n in ast.walk(tree):
+        # from dialog import Ui_Dialog (as X)
+        if isinstance(n, ast.ImportFrom) and n.module and n.level == 0:
+            ui = (folder / (n.module.replace(".", "/") + ".ui")).resolve()
+            if ui.exists():
+                for a in n.names:
+                    name_ui[a.asname or a.name] = ui
+        # form_class, base_class = uic.loadUiType('gui.ui')
+        elif isinstance(n, ast.Assign) and isinstance(n.value, ast.Call) and n.value.args:
+            f = n.value.func
+            fname = f.attr if isinstance(f, ast.Attribute) else getattr(f, "id", None)
+            if fname == "loadUiType":
+                s = _resolve(n.value.args[0], consts)
+                if s:
+                    ui = (folder / s).resolve()
+                    for t in n.targets:
+                        first = t.elts[0] if isinstance(t, ast.Tuple) and t.elts else t
+                        if isinstance(first, ast.Name):
+                            name_ui[first.id] = ui
+
+    out = []
+    for cls in tree.body:
+        if not isinstance(cls, ast.ClassDef):
+            continue
+        for b in cls.bases:
+            name = b.id if isinstance(b, ast.Name) else b.attr if isinstance(b, ast.Attribute) else None
+            ui = name_ui.get(name)
+            if ui is None and isinstance(b, ast.Attribute) and isinstance(b.value, ast.Name):
+                cand = (folder / f"{b.value.id}.ui").resolve()       # gui.Ui_MainWindow
+                ui = cand if cand.exists() else None
+            if ui is not None:
+                out.append((cls.lineno - 1, cls.end_lineno - 1, ui, cls.name))
+                break
+    return out

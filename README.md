@@ -1,106 +1,116 @@
 # PyQt 학습 도우미
 
-Qt Designer로 만든 `.ui`와 직접 짜는 `Main.py`를 **나란히 놓고 연결해서 보는** PyQt5 학습용 도구.
+**Qt Designer로 만든 `.ui`와 직접 짠 `Main.py`를 나란히 놓고, 서로 연결해서 보며 PyQt5를 익히는 학습 도구**입니다.
 
-## 설치 (처음 한 번)
+> `self.btnSave`가 화면의 어느 버튼인지, 이 줄은 왜 이렇게 쓰는지, 에러는 왜 났는지 — PyQt를 처음 배울 때 막히는 곳을 눈으로 보고 바로 고쳐 보면서 풀어 갑니다.
 
-1. [Python 3.10 이상](https://www.python.org/downloads/) 설치 — 설치 화면에서 **Add python.exe to PATH** 체크
-2. 이 폴더의 **`install.bat`** 더블클릭 → 필요한 패키지 설치 + 바탕화면 아이콘 생성
-3. (선택) AI 해설: 앱의 AI 메뉴 → 모델·키 설정. **무료**로 쓰려면 Gemini Flash(무료 티어 키) 또는 [Ollama](https://ollama.com/download)(내 PC, 완전 무료)
-4. (선택) 내 노트: 보기 → 내 노트 폴더 연결 (Obsidian 볼트나 .md 노트 폴더)
+![PyQt 학습 도우미 화면](docs/screenshot.png)
 
-## 다른 사람에게 주기
+## 이런 걸 해 줍니다
 
-`install.bat` 하나만으로는 안 되고 **폴더 전체**가 필요함 (`run.py`, `studyhelper/`, `tools/`, `requirements.txt` 등).
-배포용 zip 만들기 (git 기록·임시 파일 제외):
+### 코드와 화면을 연결해서 보기
+- **실시간 미리보기**: `.ui`를 실제 위젯으로 띄웁니다. Designer에서 저장하면 바로 다시 불러옵니다.
+- **마우스를 올리면 연결**: 코드의 파란 `self.위젯이름`에 마우스를 올리면 미리보기의 그 위젯이 빨갛게 표시되고, 클래스·레이아웃 위치·`.ui` 원본 XML이 나옵니다. 미리보기에서 위젯을 클릭하면 그 위젯을 쓰는 코드 줄이 표시됩니다.
+- **`.ui` 자동 찾기**: 파이썬 파일을 열면 맞는 `.ui`를 알아서 찾습니다. 한 `Main.py`가 `.ui`를 여러 개 쓰면(`class dlgForm(QDialog, Ui_Dialog)` 등) 커서가 있는 클래스에 맞춰 미리보기가 바뀝니다.
+
+### 설명해 주기
+- **줄 해설**: 줄을 클릭하면 **무엇을 하는지 / 왜 이렇게 쓰는지 / 주의할 점**이 나옵니다 (인터넷 없이 동작).
+- **에러 해설**: 실행(F5)이 에러로 끝나면 원인을 쉬운 말로 풀고, 에러 난 줄로 이동해 표시합니다.
+- **AI 해설·코드 리뷰**: 선택한 줄 설명(Ctrl+E), 파일 전체 리뷰, 이어서 질문하기. [무료로 켜는 방법](#ai-해설-켜기)이 있습니다.
+
+### 실수를 미리 잡아 주기
+- **이름 검사기**: `.ui`에 없는 `self.이름`(오타)은 빨간 물결 밑줄과 비슷한 이름 제안, 없는 슬롯 함수는 주황 밑줄. 문법 오류, pyuic 변환 파일과 import 불일치도 알려 줍니다.
+- **`on_위젯_시그널` 함정 경고**: `setupUi`가 이 이름을 자동 연결해서, 직접 `connect`까지 하면 함수가 두 번 실행됩니다.
+
+### 대신 해 주기
+- **시그널 연결 코드 넣기**: 시그널 탭에서 시그널을 더블클릭하면 `connect` 줄과 인자가 맞는 함수 틀을 Main.py에 넣어 줍니다. (Ctrl+Z로 한 번에 되돌리기)
+- **`objectName` 바꾸기** (F2): `.ui`의 이름과 모든 참조, Main.py의 `self.이름`을 한꺼번에 바꿔서 짝이 깨지지 않게 합니다.
+- **`.ui` 값 고치기**: `text` 같은 단순 속성은 속성 표에서 고치면 `.ui`에 바로 저장됩니다.
+- **자동완성** (Tab): `self.` 뒤에 `.ui`의 위젯 이름, `self.위젯.` 뒤에 그 위젯 클래스의 메서드·시그널(`clicked`, `setText` …)이 나옵니다.
+
+### 연습하고 정리하기
+- **도전 모드** (Ctrl+T): 목표 화면 `.ui`를 보고 Designer로 똑같이 만들면, 저장할 때마다 체크리스트로 자동 채점합니다.
+- **학습 폴더**: 자주 여는 폴더를 등록하면 파일 열기 창 왼쪽에 바로가기가 생기고, 시작 화면에 그 안의 `Main.py`가 모여 보입니다.
+- **내 노트 연결**: 내 Obsidian 볼트(또는 `.md` 노트 폴더)를 연결하면, 선택한 위젯 클래스가 나오는 노트 섹션을 찾아 줍니다.
+
+## 설치 (Windows)
+
+1. [Python 3.10 이상](https://www.python.org/downloads/) 설치 — 설치 화면에서 **Add python.exe to PATH**를 체크하세요.
+2. 이 저장소를 내려받아 압축을 풉니다 (**Code → Download ZIP**).
+3. 폴더 안의 **`install.bat`** 을 더블클릭하세요. 필요한 패키지 설치와 바탕화면 아이콘 만들기가 한 번에 끝납니다.
+4. 바탕화면의 **PyQt 학습 도우미** 아이콘으로 실행합니다. (또는 `PyQt 학습 도우미 실행.bat`)
+
+> `install.bat` 하나만이 아니라 **폴더 전체**가 필요합니다. 명령줄로 실행하려면 `python run.py "경로/Main.py"` (`.ui`나 폴더도 가능). 창에 파일을 끌어다 놓아도 열립니다.
+
+## 사용법
+
+1. **파일 열기** (Ctrl+O): `Main.py`를 엽니다. 맞는 `.ui`가 자동으로 미리보기에 뜹니다.
+2. 코드의 **파란 이름**에 마우스를 올려 화면의 위젯을 확인합니다.
+3. 궁금한 줄을 클릭하면 오른쪽 아래에 해설이 나옵니다. 더 궁금하면 **Ctrl+E**.
+4. **F5**로 실행합니다. 에러가 나면 해설과 함께 그 줄로 이동합니다.
+5. Designer가 필요하면 **Ctrl+D**. 저장하면 도우미가 바로 반영합니다.
+
+자세한 단축키와 색 표시의 뜻은 프로그램 안 **F1(사용법)** 과 코드 아래 **색 범례**에 있습니다.
+
+## AI 해설 켜기
+
+처음에는 **웹 AI 방식**으로 바로 쓸 수 있고(키 필요 없음), 아래 방법으로 답이 도우미 안에 바로 나오게 바꿀 수 있습니다.
+
+| 방법 | 비용 | 설정 |
+|---|---|---|
+| **무료 AI 켜기** (Gemini 무료 티어) ← 추천 | 무료 (사용량 제한) | AI 해설 탭의 파란 **무료 AI 켜기** 버튼 → 구글 AI Studio에서 키를 만들어 **복사 버튼**만 누르면 자동 연결 |
+| **웹 AI** (ChatGPT / Gemini / Claude 웹) | 무료 계정 | 기본값. Ctrl+E를 누르면 질문이 복사되고 웹 창이 열립니다. 붙여넣고, 답의 복사 버튼을 누르면 답이 도우미로 들어옵니다 |
+| **Ollama** (내 PC) | 완전 무료, 인터넷 불필요 | [Ollama](https://ollama.com/download) 설치 후 모델 받기 (PC 성능 필요) |
+| **Claude · GPT · Gemini API** | 유료 | AI 메뉴 → AI 모델·키 설정에서 키 입력 |
+
+- API 키는 각자의 **Windows 자격 증명 관리자**에만 저장되고, 파일이나 저장소에는 남지 않습니다. 환경변수(`GEMINI_API_KEY` / `OPENAI_API_KEY` / `ANTHROPIC_API_KEY`)가 있으면 그것을 우선 씁니다.
+- Gemini 무료 티어는 분당·하루 사용량 제한이 있고, 무료 티어에서는 입력한 내용이 Google 제품 개선에 쓰일 수 있습니다.
+- 웹 AI 방식은 내 코드가 해당 사이트로 보내진다는 점을 알아 두세요. 웹사이트를 자동으로 조작하지 않고, 사용자가 붙여넣고 복사합니다.
+- 목록에 없는 새 모델은 모델 칸에 이름을 직접 입력하면 됩니다.
+
+## 요구 사항
+
+- Windows, Python 3.10+
+- `PyQt5`, `keyring`, `google-genai`, `openai`, `anthropic`, (선택) `jedi` — `install.bat`이 설치합니다.
+- Designer 연동(Ctrl+D)은 `PyQt5Designer` 패키지의 `designer.exe`를 씁니다 (설치 스크립트가 시도).
+
+## 개발
+
+```
+run.py                  진입점 (Qt 플러그인 경로 보정, 오류 창)
+install.bat             처음 설치 (패키지 + 바탕화면 아이콘)
+tools/make_shortcut.py  바탕화면 아이콘 만들기
+studyhelper/
+  mainwindow.py         화면 조립, 파일 감시, 실행
+  preview.py            미리보기 + 위젯 강조
+  editor.py             Main.py 편집기 (줄 번호, 하이라이트, hover, 자동완성 팝업)
+  completer.py          자동완성 후보 (.ui 위젯, Qt 메서드·시그널, jedi)
+  props.py              선택한 위젯 패널
+  ui_model.py           .ui XML → 위젯 트리, 값 수정·이름 바꾸기
+  locate.py             .py ↔ .ui 찾기, 클래스별 .ui 매핑
+  checker.py            이름 검사기
+  errors.py             traceback → 쉬운 해설
+  explain.py            줄 해설 규칙
+  codeview.py           pyuic 생성 코드 해설
+  codegen.py, signaldialog.py  시그널 연결 코드 만들기
+  renamedialog.py       objectName 바꾸기
+  challenge.py          도전 모드
+  studyfolders.py       학습 폴더
+  notes.py              내 노트 검색·열기
+  ai.py, explainpanel.py, freeai.py   AI 호출, AI 패널, 무료 AI 켜기
+tests/                  자동 테스트
+docs/                   개발 기록, 스크린샷
+```
+
+자동 테스트 실행:
 
 ```bash
-git archive --format=zip --prefix=PyQtStudyHelper/ -o ../PyQtStudyHelper.zip HEAD
+python -m unittest discover -s tests -t .
 ```
 
-받는 사람: zip 압축 풀기 → `PyQtStudyHelper\install.bat` 더블클릭 → 바탕화면 아이콘으로 실행.
-API 키·노트 폴더는 각자 앱에서 설정 (zip에는 들어 있지 않음).
+화면 없이 돌리려면 환경변수 `QT_QPA_PLATFORM=offscreen`을 지정하세요.
 
-## 실행
+## 기여
 
-- **바탕화면 `PyQt 학습 도우미` 아이콘** 더블클릭 (또는 `PyQt 학습 도우미 실행.bat`). 파이썬/.ui 파일을 아이콘 위에 끌어다 놓거나, 실행 중인 창에 끌어다 놓아도 열림.
-- 명령줄: `python run.py "경로/Main.py"` (.ui 파일이나 폴더도 가능)
-- 프로그램 자체 오류는 창으로 알려 주고 `error.log`에 남김.
-
-## 화면
-
-| 영역 | 하는 일 |
-|---|---|
-| 실시간 미리보기 | `uic.loadUi()`로 만든 실제 위젯. 클릭하면 그 위젯이 선택됨 (버튼 동작은 막힘) |
-| 위젯 트리 | `.ui` 안의 위젯·레이아웃 계층. 레이아웃은 회색 기울임 |
-| Main.py | 편집 가능 (Ctrl+S 저장). `.ui`에 있는 `self.이름`은 파랗게 표시, 마우스를 올리면 선택 |
-| 선택한 위젯 | 클래스·위치 / 속성 표(흰 칸은 더블클릭해 수정 → `.ui`에 저장) / Main.py에서 쓰는 곳 / 시그널(→ 연결 코드 넣기) / 코드로 보기 / `.ui 원본` / 내 노트 |
-| 해설 · 줄 해설 | 클릭한 줄이 **무엇을 하는지 / 왜 이렇게 썼는지 / 주의할 점** (오프라인, 실습에 자주 나오는 구문 위주) + 이 줄이 어느 함수 안에 있고 무엇이 실행시키는지 |
-| 해설 · AI 해설 | 선택한 줄 설명(Ctrl+E), 파일 전체 리뷰, 이어서 질문하기 (Claude API, 내 API 키 필요) |
-| 실행 결과 | ▶ 실행(F5) 출력과 에러, 에러 해설. `File "...", line N` 줄을 클릭하면 이동 |
-| 검사 | 이름 검사 결과 목록 (클릭하면 이동) |
-
-## 동작
-
-- **.ui 자동 찾기**: 파이썬 파일을 열면 ① `from gui import ...`처럼 import한 모듈 → ② 코드 속 `'gui.ui'`, `f'{GUI_FILE_NAME}.ui'` 같은 문자열 → ③ 같은 폴더의 `.ui` 순서로 찾음. 후보가 여럿이면 툴바 드롭다운에서 바꿈. `.ui`를 열면 그걸 쓰는 `.py`(Main.py 우선)를 찾아 엶.
-- **자동 갱신**: Designer에서 `.ui`를 저장하면 미리보기·트리·속성이 바로 다시 불러와짐 (선택 유지). Main.py가 밖에서 바뀌어도 다시 불러옴 (저장 안 한 편집이 있으면 건드리지 않음).
-- **실행 안전장치**: ▶ 실행 시 Main.py가 `gui`를 import하는데 `gui.py`가 없거나 `gui.ui`보다 오래됐으면 먼저 다시 만들어 줌.
-- **이름 검사기** (입력할 때마다): `.ui`에 없는 `self.이름`은 빨간 물결 밑줄 + 비슷한 이름 제안, 없는 슬롯 함수는 주황 밑줄, 문법 오류, pyuic 변환 파일과 import 모듈 불일치 경고. Main.py에서 안 쓰는 위젯은 트리에서 흐리게.
-- **에러 해설**: 실행이 에러로 끝나면 AttributeError·ImportError·NameError·슬롯 인자 개수·타입 오류 등을 쉬운 말로 풀고, 에러 난 줄로 이동해 빨갛게 표시.
-- **Designer에서 열기** (Ctrl+D): 현재 `.ui`를 Qt Designer로 엶 (`PyQt5Designer` 패키지의 designer.exe).
-- **AI 해설 설정**: 메뉴 AI → AI 모델·키 설정. 모델을 고르고 그 회사 키를 붙여넣고 [연결 테스트] → [저장]. 키는 회사별로 Windows 자격 증명 관리자에 저장되고 파일·저장소에는 남지 않음 (환경변수 `GEMINI_API_KEY` / `OPENAI_API_KEY` / `ANTHROPIC_API_KEY`가 있으면 우선).
-  | 회사 | 모델 | 비용 |
-  |---|---|---|
-  | Google | Gemini 3.8 Flash (기본), 3.5 Flash-Lite / 3.1 Pro | Flash 계열 **무료 티어** (사용량 제한, 입력이 Google 제품 개선에 쓰일 수 있음) / Pro 유료 |
-  | 내 PC | Ollama 모델 (예: `qwen3:8b`) | **완전 무료**, 인터넷 불필요, PC 성능 필요 |
-  | Anthropic | Claude Opus 5.5 / Sonnet 5.5 / Haiku 4.5 | 유료 |
-  | OpenAI | GPT-6 Astra / GPT-6.1 Sol / GPT-6 Luna | 유료 |
-  목록에 없는 새 모델은 모델 칸에 이름을 직접 입력하면 됨.
-- **시그널 도우미**: 시그널 탭에서 시그널을 더블클릭 → 슬롯 이름을 정하고 미리 본 뒤 [Main.py에 넣기]. `__init__`의 connect 줄 모음 끝에 연결 줄, 클래스 끝에 인자까지 맞춘 함수 틀이 들어감 (초록 표시, Ctrl+Z 한 번에 되돌리기). 이미 연결돼 있으면 그 줄로 이동. `on_위젯_시그널` 이름은 setupUi가 자동 연결해 두 번 실행되므로 피하도록 안내·검사.
-- **.ui 값 고치기**: text·title·숫자·true/false 같은 단순 속성은 속성 표에서 바로 고치면 `.ui`에 저장 (바뀐 줄만 바뀌고 줄바꿈·형식 유지). 복잡한 속성은 Designer에서.
-- **내 노트 연결**: 보기 → 내 노트 폴더 연결로 **직접 연결한** 폴더에서, 위젯 클래스가 나오는 노트 섹션을 찾아 보여 줌. 더블클릭하면 Obsidian 볼트는 Obsidian에서 그 제목으로, 일반 폴더는 기본 앱으로 열림. 줄 해설에도 관련 노트 링크.
-- **objectName 바꾸기** (F2, 위젯 트리 우클릭): `.ui`의 이름과 모든 참조(시그널/슬롯 편집기, 탭 순서, 버튼 그룹, 메뉴 액션)와 Main.py의 `self.이름`을 한꺼번에 바꿈. 최상위 창이면 `Ui_클래스` 이름과 import 줄까지. 미리보기 후 적용, Main.py는 Ctrl+Z로 되돌리기.
-- **도전 모드** (Ctrl+T): 목표 화면 `.ui`(예제·정답)를 고르면 왼쪽에 목표 화면, 오른쪽에 체크리스트. [빈 .ui 만들어서 시작] → Designer에서 만들고 저장할 때마다 위젯 종류·개수, 레이아웃, 글자, (보너스) objectName을 자동 채점.
-- **색 범례**: 코드 아래에 색 표시 뜻이 늘 보임 (보기 → 색 범례 보기로 끄기).
-- **자동완성**: Main.py를 칠 때 후보 목록이 뜨고 **Tab**으로 완성 (Enter는 그냥 줄바꿈). `self.` 뒤에는 `.ui`의 위젯 이름, `self.위젯.` 뒤에는 그 위젯 클래스의 메서드·시그널(`clicked`, `setText` …), 그 밖에는 PyQt5 클래스·변수·키워드. ↑↓ 선택, Esc 닫기, Ctrl+Space로 직접 열기. 주석·문자열 안에서는 안 뜸. `jedi`가 없으면 위젯 이름·키워드·파일 안 단어만 나옴. 자세한 개발 기록은 `docs/autocomplete-process.md`.
-- **학습 폴더 등록**: 파일 → 학습 폴더 관리…에서 자주 쓰는 폴더를 등록하면 파일 열기 창(와 도전 모드의 .ui 고르기 창) **왼쪽 바로가기**에 맨 위로 나옴. 파일 열기 창은 열린 파일의 폴더 → 마지막에 연 폴더 → 첫 학습 폴더 순으로 시작하고, 그 폴더가 없어졌으면 다음 순위로 넘어감. 바로가기를 보여 주려고 윈도우 기본 창 대신 Qt 자체 파일 창을 씀.
-- **학습 폴더의 Main 파일 모아 보기**: 등록한 학습 폴더 안(하위 폴더 포함, 6단계까지)의 `Main.py`/`main.py`를 시작 화면 **최근 파일 아래 '학습 폴더' 구역**과 파일 → 최근 파일 하위 메뉴에 보여 줌. 직접 연 최근 파일(최대 10개)과는 별개라 서로 밀어내지 않음. 앱 시작·학습 폴더 저장·시작 화면으로 돌아올 때(30초에 한 번까지) 백그라운드로 다시 찾음. `.git`·`venv` 같은 폴더는 건너뛰고 폴더당 500개까지.
-- **편의 기능**: 시작 화면과 최근 파일, 메뉴·단축키(F1 사용법), Ctrl+휠로 코드 글자 크기, 보기 → 화면 배치 초기화, 현재 줄 강조.
-
-## 단계 계획
-
-1. ✅ 미리보기, 속성 패널(코드로 보기), Main.py 연동, `.ui` 자동 감지, 실행
-2. ✅ 이름 검사기, 에러 해설과 줄 이동, 바로 실행 아이콘
-3. ✅ 줄 해설(오프라인) + AI 해설·코드 리뷰, 사용 편의 개선
-4. ✅ 시그널 도우미, `.ui` 값 고치기, 내 노트 연결, 색 범례
-5. ✅ objectName 바꾸기, 도전 모드, AI 여러 회사(Gemini 무료·Ollama 무료·Claude·GPT), 배포용 설치(install.bat)
-
-## 구조
-
-```
-run.py                     진입점 (Qt 플러그인 경로 보정, 오류 창)
-install.bat                처음 설치 (패키지 + 바탕화면 아이콘)
-PyQt 학습 도우미 실행.bat                  더블클릭 실행
-tools/make_shortcut.py     바탕화면 아이콘 만들기
-studyhelper/
-  mainwindow.py            화면 조립, 파일 감시, 실행
-  preview.py               미리보기 + 빨간 강조 오버레이
-  editor.py                Main.py 편집기 (줄 번호, 하이라이트, hover, 자동완성 팝업)
-  completer.py             자동완성 후보 만들기 (.ui 위젯, Qt 메서드·시그널, jedi)
-  studyfolders.py          학습 폴더 등록, 파일 열기 창 시작 폴더·왼쪽 바로가기
-  props.py                 속성 패널
-  ui_model.py              .ui XML → 위젯 트리
-  locate.py                .py ↔ .ui 찾기
-  codeview.py              pyuic 생성 코드 + 줄 해설
-  checker.py               이름 검사기
-  errors.py                traceback → 쉬운 해설
-  explain.py               줄 해설 규칙 (무엇/왜/주의)
-  ai.py                    AI 호출 (Claude·GPT·Gemini·Ollama), 키 저장
-  explainpanel.py          줄 해설·AI 해설 패널, 설정 대화상자
-  codegen.py, signaldialog.py  시그널 연결 코드 만들기
-  notes.py                 Obsidian 강의노트 검색·열기
-  renamedialog.py          objectName 바꾸기
-  challenge.py             도전 모드
-tests/                     자동 테스트: python -m unittest discover -s tests -t .
-docs/                      개발 기록 (AI·사람이 읽는 markdown)
-```
+- 자동완성, 학습 폴더 등록과 Main 파일 모아 보기, 자동 테스트는 **[BlackBuddle](https://github.com/BlackBuddle)** 님이 Pull Request로 추가했습니다.
+- 버그 제보와 개선 제안은 Issues / Pull Request로 환영합니다.

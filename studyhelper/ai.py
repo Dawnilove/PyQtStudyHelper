@@ -21,7 +21,17 @@ PROVIDERS = {
                    key_page="https://aistudio.google.com/apikey", package="google.genai", hint="AIza..."),
     "ollama": dict(name="내 PC (Ollama)", key_name=None, env=(), key_page="https://ollama.com/download",
                    package="openai", hint=""),
+    "web": dict(name="웹 AI (무료 · 키 필요 없음)", key_name=None, env=(), key_page="",
+                package=None, hint=""),
 }
+
+# Free web chats: the helper copies the question to the clipboard and opens the site;
+# the user pastes it there. No API, no key, nothing unofficial.
+WEB_TARGETS = [
+    ("web:chatgpt", "ChatGPT 웹 — 무료 계정으로 사용", "https://chatgpt.com/"),
+    ("web:gemini", "Gemini 웹 — 무료 계정으로 사용", "https://gemini.google.com/app"),
+    ("web:claude", "Claude 웹 — 무료 계정으로 사용", "https://claude.ai/new"),
+]
 
 # (model id, label, provider, free?)  — checked against each provider's model docs, 2026-10
 MODELS = [
@@ -35,7 +45,7 @@ MODELS = [
     ("gpt-6.1-sol", "GPT-6.1 Sol — 성능·가격 균형", "openai", False),
     ("gpt-6-luna", "GPT-6 Luna — 아주 저렴", "openai", False),
 ]
-DEFAULT_MODEL = "gemini-3.8-flash"
+DEFAULT_MODEL = "web:chatgpt"          # works for everyone right after install (no key)
 OLLAMA_SUGGEST = "qwen3:8b"
 
 SYSTEM = """당신은 PyQt5를 처음 배우는 학생을 돕는 친절한 튜터입니다.
@@ -64,6 +74,8 @@ REVIEW_TASK = """Main.py 전체를 초보자 눈높이로 코드 리뷰해 주�
 
 # ------------------------------------------------------------------ models
 def provider_of(model: str) -> str:
+    if model.startswith("web:"):
+        return "web"
     for mid, _, prov, _ in MODELS:
         if mid == model:
             return prov
@@ -80,9 +92,28 @@ def label_of(model: str) -> str:
     for mid, label, _, _ in MODELS:
         if mid == model:
             return label
+    for mid, label, _ in WEB_TARGETS:
+        if mid == model:
+            return label
     if model.startswith("ollama:"):
         return f"{model[7:]} — 내 PC · 완전 무료"
     return model
+
+
+def short_name(model: str) -> str:
+    """For buttons / status bar."""
+    if model.startswith("web:"):
+        return {"web:chatgpt": "ChatGPT 웹", "web:gemini": "Gemini 웹", "web:claude": "Claude 웹"}.get(model, model)
+    return model.replace("ollama:", "내 PC ")
+
+
+def web_url(model: str) -> str:
+    return next((u for mid, _, u in WEB_TARGETS if mid == model), WEB_TARGETS[0][2])
+
+
+def web_prompt(context: str, task: str) -> str:
+    """One message to paste into a web chat: tutor instructions + code + request."""
+    return f"{SYSTEM}\n\n아래는 학생의 코드와 .ui 위젯 목록이에요.\n\n{context}\n\n{task}"
 
 
 def ollama_models() -> list[str]:
@@ -158,8 +189,11 @@ def set_model(model: str):
 def package_ok(provider: str) -> bool:
     """Installed? (find_spec doesn't import — importing google.genai alone takes ~1 s)"""
     import importlib.util
+    pkg = PROVIDERS[provider]["package"]
+    if pkg is None:
+        return True
     try:
-        return importlib.util.find_spec(PROVIDERS[provider]["package"]) is not None
+        return importlib.util.find_spec(pkg) is not None
     except (ImportError, ValueError):
         return False
 
