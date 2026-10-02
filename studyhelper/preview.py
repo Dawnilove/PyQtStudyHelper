@@ -89,6 +89,16 @@ class PreviewPane(QScrollArea):
         self.root = None
         self.names: set[str] = set()
         self._sel = None
+        self._palette = None
+
+    def set_fixed_palette(self, pal):
+        """Give the preview its own colours (so a dark app theme doesn't change how the .ui looks)."""
+        self._palette = pal
+        for o in (self, self.viewport(), self.host):
+            o.setPalette(pal)
+        if self.root is not None:
+            for o in [self.root] + self.root.findChildren(QWidget):
+                o.setPalette(pal)
 
     def load(self, ui_path, names) -> str | None:
         """(Re)load the preview. Returns an error message or None."""
@@ -116,6 +126,9 @@ class PreviewPane(QScrollArea):
         w.setMinimumSize(designed.boundedTo(w.maximumSize()))
         self._lay.addWidget(w)
         self.root = w
+        if self._palette is not None:
+            for o in [w] + w.findChildren(QWidget):
+                o.setPalette(self._palette)
         for o in [w] + w.findChildren(QWidget):
             o.installEventFilter(self)
             if not isinstance(o, (QTabBar, QScrollBar)):

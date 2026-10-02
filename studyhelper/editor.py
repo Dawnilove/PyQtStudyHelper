@@ -9,6 +9,7 @@ from PyQt5.QtGui import (QColor, QFont, QPainter, QSyntaxHighlighter, QTextCharF
 from PyQt5.QtWidgets import (QListWidget, QListWidgetItem, QPlainTextEdit, QStyle,
                              QStyledItemDelegate, QTextEdit, QToolTip, QWidget)
 
+from . import theme
 from .completer import Completer
 
 SELF_ATTR = re.compile(r"\bself\.(\w+)")
@@ -34,23 +35,27 @@ def _fmt(color, bold=False, italic=False, underline=False):
 
 
 class PythonHighlighter(QSyntaxHighlighter):
-    KW = _fmt("#0033b3", bold=True)
-    SELF = _fmt("#94558d", italic=True)
-    STR = _fmt("#067d17")
-    COMMENT = _fmt("#8c8c8c", italic=True)
-    NUM = _fmt("#1750eb")
-    WIDGET = _fmt("#0b6bcb", bold=True, underline=True)
-
     def __init__(self, doc):
         super().__init__(doc)
         self.names: set[str] = set()
+        self.strings = re.compile(r"""[rbfu]{0,2}("[^"\n]*"|'[^'\n]*')""", re.I)
+        self.rebuild()
+
+    def rebuild(self):
+        """(Re)read the colours from the current theme."""
+        t = theme.T
+        self.KW = _fmt(t["kw"], bold=True)
+        self.SELF = _fmt(t["self"], italic=True)
+        self.STR = _fmt(t["str"])
+        self.COMMENT = _fmt(t["comment"], italic=True)
+        self.NUM = _fmt(t["num"])
+        self.WIDGET = _fmt(t["widget"], bold=True, underline=True)
         kw = "|".join(keyword.kwlist)
         self.rules = [
             (re.compile(rf"\b({kw})\b"), self.KW),
             (re.compile(r"\bself\b"), self.SELF),
             (re.compile(r"\b\d+(\.\d+)?\b"), self.NUM),
         ]
-        self.strings = re.compile(r"""[rbfu]{0,2}("[^"\n]*"|'[^'\n]*')""", re.I)
 
     def highlightBlock(self, text):
         for rx, fmt in self.rules:
@@ -441,7 +446,7 @@ class CodeEditor(QPlainTextEdit):
 
     def _apply(self):
         cur = QTextEdit.ExtraSelection()          # current line, so the 해설 panel's line is obvious
-        cur.format.setBackground(QColor("#eaf2ff"))
+        cur.format.setBackground(QColor(theme.T["cur_line"]))
         cur.format.setProperty(QTextFormat.FullWidthSelection, True)
         cur.cursor = QTextCursor(self.textCursor().block())
         sels = [cur] + list(self._mark_sels)
@@ -449,7 +454,7 @@ class CodeEditor(QPlainTextEdit):
             block = self.document().findBlockByNumber(n)
             if block.isValid():
                 f = QTextEdit.ExtraSelection()
-                f.format.setBackground(QColor("#d3f9d8"))
+                f.format.setBackground(QColor(theme.T["flash"]))
                 f.format.setProperty(QTextFormat.FullWidthSelection, True)
                 f.cursor = QTextCursor(block)
                 sels.append(f)
@@ -457,7 +462,7 @@ class CodeEditor(QPlainTextEdit):
             block = self.document().findBlockByNumber(self.error[0])
             if block.isValid():
                 s = QTextEdit.ExtraSelection()
-                s.format.setBackground(QColor("#ffd9d9"))
+                s.format.setBackground(QColor(theme.T["err_line"]))
                 s.format.setProperty(QTextFormat.FullWidthSelection, True)
                 s.cursor = QTextCursor(block)
                 sels.insert(0, s)
@@ -485,12 +490,12 @@ class CodeEditor(QPlainTextEdit):
             while block.isValid():
                 for m in rx.finditer(block.text()):
                     line = QTextEdit.ExtraSelection()
-                    line.format.setBackground(QColor("#fff4c2"))
+                    line.format.setBackground(QColor(theme.T["mark_line"]))
                     line.format.setProperty(QTextFormat.FullWidthSelection, True)
                     line.cursor = QTextCursor(block)
                     sels.append(line)
                     word = QTextEdit.ExtraSelection()
-                    word.format.setBackground(QColor("#ffd666"))
+                    word.format.setBackground(QColor(theme.T["mark_word"]))
                     c = QTextCursor(block)
                     c.setPosition(block.position() + m.start())
                     c.setPosition(block.position() + m.end(), QTextCursor.KeepAnchor)
@@ -499,6 +504,14 @@ class CodeEditor(QPlainTextEdit):
                 block = block.next()
         self._mark_sels = sels
         self._apply()
+
+    def apply_theme(self):
+        """Colours changed (light <-> dark): redo the highlighting, line marks and gutter."""
+        self.highlighter.rebuild()
+        self.highlighter.rehighlight()
+        self.mark(self._marked)
+        self._line_area.update()
+        self.viewport().update()
 
     def go_to_line(self, block_no):
         block = self.document().findBlockByNumber(block_no)
@@ -537,7 +550,7 @@ class CodeEditor(QPlainTextEdit):
 
     def paint_line_area(self, e):
         p = QPainter(self._line_area)
-        p.fillRect(e.rect(), QColor("#f3f3f3"))
+        p.fillRect(e.rect(), QColor(theme.T["gutter_bg"]))
         marked = set(self.occurrences(self._marked))
         levels = {}
         for x in self.issues:
@@ -555,7 +568,7 @@ class CodeEditor(QPlainTextEdit):
                     p.setPen(Qt.NoPen)
                     p.setBrush(QColor("#e03131" if levels[n] == "error" else "#e8890c"))
                     p.drawEllipse(3, top + h // 2 - 3, 6, 6)
-                p.setPen(QColor("#b8860b") if n in marked else QColor("#999999"))
+                p.setPen(QColor(theme.T["gutter_mark"]) if n in marked else QColor(theme.T["gutter_fg"]))
                 p.drawText(0, top, self._line_area.width() - 6, h, Qt.AlignRight, str(n + 1))
             top += round(self.blockBoundingRect(block).height())
             block = block.next()

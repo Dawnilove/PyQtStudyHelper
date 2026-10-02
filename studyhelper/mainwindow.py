@@ -10,12 +10,12 @@ from PyQt5 import uic
 from PyQt5.QtCore import (QFileSystemWatcher, QProcess, QProcessEnvironment, QSettings, Qt,
                           QTimer)
 from PyQt5.QtCore import QUrl
-from PyQt5.QtGui import QColor, QDesktopServices, QFont, QKeySequence, QTextCursor
+from PyQt5.QtGui import QColor, QDesktopServices, QFont, QIcon, QKeySequence, QPainter, QTextCursor
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import (QAction, QApplication, QComboBox, QDialog, QFileDialog, QLabel, QListWidget, QListWidgetItem,
                              QMainWindow, QMessageBox, QPlainTextEdit, QSizePolicy, QSplitter, QStyle,
                              QTabWidget, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
-                             QStackedWidget, QPushButton, QHBoxLayout, QTextBrowser, QMenu, QDockWidget)
+                             QStackedWidget, QTabBar, QPushButton, QHBoxLayout, QTextBrowser, QMenu, QDockWidget)
 
 from . import ai, checker, codeview, errors, notes
 from .challenge import ChallengeWindow
@@ -24,7 +24,7 @@ from .renamedialog import RenameDialog
 from .signaldialog import SignalInsertDialog
 from .ui_model import rename_object, set_property
 from .explainpanel import AiPanel, AiSettingsDialog, LineExplainView
-from . import recovery
+from . import recovery, theme
 from .findbar import FindBar
 from .editor import CodeEditor
 from .locate import class_ui_ranges, import_mismatch, main_py_in, py_for_ui, read_text, ui_candidates
@@ -146,7 +146,12 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(900, 600)
         self.resize(min(1500, int(scr.width() * 0.94)), min(900, int(scr.height() * 0.92)))
         self.move(scr.x() + (scr.width() - self.width()) // 2, scr.y() + (scr.height() - self.height()) // 2)
+        self._dark = self.settings.value("view/dark", False) in (True, "true")
+        theme.apply(QApplication.instance(), self._dark)
         self._build_ui()
+        self.a_dark.setChecked(self._dark)
+        self._light_preview()
+        self._tint_icons()
         self.watcher = QFileSystemWatcher(self)
         self.watcher.fileChanged.connect(self._on_file_changed)
         self._pending = set()
@@ -178,6 +183,8 @@ class MainWindow(QMainWindow):
     def _backup_now(self):
         if self.py_path and self.editor.document().isModified():
             recovery.save(self.py_path, self.editor.toPlainText())
+        for path, st in self._stash.items():
+            recovery.save(path, st["text"])
 
     # ------------------------------------------------------------------ UI
     def _build_ui(self):
@@ -209,6 +216,8 @@ class MainWindow(QMainWindow):
         self.a_vault = A("내 노트 폴더 연결…", self.choose_vault, None, None,
                          "내 Obsidian 볼트(또는 .md 노트 폴더)를 연결하면 위젯·코드에 맞는 노트를 찾아 줘요")
         self.a_vault_off = A("내 노트 폴더 연결 해제", self.disconnect_vault)
+        self.a_dark = A("어두운 테마", self.toggle_dark, None, None, "화면을 어둡게 바꿔요 (눈이 편해요)")
+        self.a_dark.setCheckable(True)
         self.a_legend = A("색 범례 보기", self.toggle_legend)
         self.a_legend.setCheckable(True)
         self.a_help = A("사용법", self.show_help, "F1", QStyle.SP_MessageBoxQuestion, "사용법과 단축키 (F1)")
@@ -252,6 +261,7 @@ class MainWindow(QMainWindow):
         m.addSeparator()
         m.addAction(self.a_explorer)
         m.addAction(self.a_legend)
+        m.addAction(self.a_dark)
         m.addAction(self.a_reset_layout)
         m.addAction(self.a_vault)
         m.addAction(self.a_vault_off)
@@ -339,6 +349,17 @@ class MainWindow(QMainWindow):
         self.legend.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Minimum)
         self.legend.setObjectName("legend")
         self.legend.setToolTip("<html>"+LEGEND_FULL+"<br>(보기 메뉴에서 끄고 켤 수 있어요)</html>")
+        self.file_tabs = QTabBar()
+        self.file_tabs.setObjectName("fileTabs")
+        self.file_tabs.setTabsClosable(True)
+        self.file_tabs.setDocumentMode(True)
+        self.file_tabs.setExpanding(False)
+        self.file_tabs.setUsesScrollButtons(True)
+        self.file_tabs.currentChanged.connect(self._on_tab_changed)
+        self.file_tabs.tabCloseRequested.connect(self.close_tab)
+        self.file_tabs.setVisible(False)
+        self._stash = {}                 # path -> {"text", "line"} for edited files that aren't the one shown
+        self.editor_box.layout().insertWidget(1, self.file_tabs)
         self.findbar = FindBar(self.editor)
         self.editor_box.layout().addWidget(self.findbar)
         self.editor_box.layout().addWidget(self.legend)
@@ -431,7 +452,7 @@ class MainWindow(QMainWindow):
         box = QVBoxLayout()
         title = QLabel("<span style='font-size:22pt;font-weight:600'>PyQt 학습 도우미</span>")
         sub = QLabel("Designer에서 만든 <b>.ui</b>와 내가 짠 <b>Main.py</b>를 연결해서 보며 공부해요.")
-        sub.setStyleSheet("color:#555;font-size:11pt")
+        sub.setStyleSheet("color:#8a8f98;font-size:11pt")
         box.addWidget(title)
         box.addWidget(sub)
         box.addSpacing(18)
@@ -516,7 +537,7 @@ class MainWindow(QMainWindow):
             font = header.font()
             font.setBold(True)
             header.setFont(font)
-            header.setForeground(QColor("#555555"))
+            header.setForeground(QColor("#8a8f98"))
             header.setToolTip(folder)
             self.recent_list.addItem(header)
 
@@ -723,6 +744,44 @@ class MainWindow(QMainWindow):
                      "(Designer에서 이 파일을 열어 두었다면 Designer에서 다시 열어 주세요)", 12000)
         QTimer.singleShot(0, lambda: self.load_ui(self.ui_path))
 
+    def _tint_icons(self):
+        """The built-in play/stop icons are black: lighten them in the dark theme so they stay visible."""
+        st = self.style()
+        for act, sp in ((self.a_run, QStyle.SP_MediaPlay), (self.a_stop, QStyle.SP_MediaStop)):
+            icon = st.standardIcon(sp)
+            if self._dark:
+                pm = icon.pixmap(32, 32)
+                p = QPainter(pm)
+                p.setCompositionMode(QPainter.CompositionMode_SourceIn)
+                p.fillRect(pm.rect(), QColor("#e6e6e6"))
+                p.end()
+                dis = icon.pixmap(32, 32, QIcon.Disabled)
+                p = QPainter(dis)
+                p.setCompositionMode(QPainter.CompositionMode_SourceIn)
+                p.fillRect(dis.rect(), QColor("#6a6f76"))
+                p.end()
+                icon = QIcon()
+                icon.addPixmap(pm, QIcon.Normal)
+                icon.addPixmap(dis, QIcon.Disabled)
+            act.setIcon(icon)
+
+    def _light_preview(self):
+        """The .ui preview keeps the light look it was designed with, also in the dark theme."""
+        self.preview.set_fixed_palette(QApplication.style().standardPalette())
+
+    def toggle_dark(self):
+        self._dark = self.a_dark.isChecked()
+        self.settings.setValue("view/dark", self._dark)
+        theme.apply(QApplication.instance(), self._dark)
+        self._light_preview()
+        self._tint_icons()
+        self.editor.apply_theme()
+        self.run_check()                       # re-colours the dimmed (unused) widget names
+        self.line_view._last = None
+        self._on_cursor_moved()                # re-draws the 해설 panel with the new colours
+        if self.sel:
+            self.select(self.sel, "tree")
+
     def toggle_legend(self):
         on = self.a_legend.isChecked()
         self.legend.setVisible(on)
@@ -845,6 +904,8 @@ class MainWindow(QMainWindow):
         name = self.py_path.name if self.py_path else "파일 없음"
         dirty = "*" if self.editor.document().isModified() else ""
         self.setWindowTitle(f"{dirty}{name} — PyQt 학습 도우미")
+        if hasattr(self, "file_tabs"):
+            self._refresh_tab_titles()
         if self.py_path:
             self.editor_box.title_label.setText(f"<b>{dirty}{escape(self.py_path.name)}</b> "
                                                 f"<span style='color:#888'>· {escape(self.py_path.parent.name)}</span>")
@@ -890,15 +951,19 @@ class MainWindow(QMainWindow):
                                                       "찾지 못했어요. 파이썬 파일을 직접 골라 주세요.")
                 return False
             p = py.resolve()
-        if not self._confirm_discard():
-            return False
+        self._stash_current()
 
         self.py_path = p
         self._mismatch = import_mismatch(p)
         text, self.encoding, self.crlf = read_text(p)
         self.editor.setPlainText(text)
         self.editor.document().setModified(False)
-        lost = recovery.load(p, text)
+        kept = self._stash.pop(str(p), None)
+        lost = None if kept else recovery.load(p, text)
+        if kept:
+            self.editor.setPlainText(kept["text"])
+            self.editor.document().setModified(True)
+            self.editor.go_to_line(kept["line"])
         if lost is not None and QMessageBox.question(
                 self, "복구", f"{p.name} 을(를) 저장하지 못하고 닫힌 흔적이 있어요.\n그때 작성하던 내용을 되살릴까요?",
                 QMessageBox.Yes | QMessageBox.No) == QMessageBox.Yes:
@@ -917,6 +982,7 @@ class MainWindow(QMainWindow):
             self.ui_combo.setCurrentIndex([str(c) for c in cands].index(str(ui)))
         self.settings.setValue("lastFile", str(p))
         self.settings.setValue("lastDir", str(p.parent))
+        self._select_tab(p)
         self._update_title()
         if cands:
             self.load_ui(Path(self.ui_combo.currentData()))
@@ -930,6 +996,98 @@ class MainWindow(QMainWindow):
         self._add_recent(p)
         self.stack.setCurrentIndex(1)
         self._on_cursor_moved()
+        return True
+
+    # ------------------------------------------------------------ file tabs
+    def _tab_index(self, path) -> int:
+        for i in range(self.file_tabs.count()):
+            if self.file_tabs.tabData(i) == str(path):
+                return i
+        return -1
+
+    def _select_tab(self, path):
+        i = self._tab_index(path)
+        self.file_tabs.blockSignals(True)
+        if i < 0:
+            i = self.file_tabs.addTab(Path(path).name)
+            self.file_tabs.setTabData(i, str(path))
+            self.file_tabs.setTabToolTip(i, str(path))
+        self.file_tabs.setCurrentIndex(i)
+        self.file_tabs.blockSignals(False)
+        self.file_tabs.setVisible(True)
+
+    def _stash_current(self):
+        """Leaving the shown file: keep its unsaved edits (so switching tabs never asks or loses work)."""
+        if self.py_path and self.editor.document().isModified():
+            self._stash[str(self.py_path)] = {"text": self.editor.toPlainText(),
+                                              "line": self.editor.textCursor().blockNumber()}
+            self.editor.document().setModified(False)
+            self._refresh_tab_titles()
+
+    def _refresh_tab_titles(self):
+        for i in range(self.file_tabs.count()):
+            path = self.file_tabs.tabData(i)
+            cur = bool(self.py_path) and path == str(self.py_path)
+            dirty = self.editor.document().isModified() if cur else path in self._stash
+            self.file_tabs.setTabText(i, ("● " if dirty else "") + Path(path).name)
+
+    def _on_tab_changed(self, i):
+        path = self.file_tabs.tabData(i) if i >= 0 else None
+        if path and (not self.py_path or str(self.py_path) != path):
+            if not self.open_path(path) and self.py_path:
+                self._select_tab(self.py_path)
+
+    def close_tab(self, i):
+        path = self.file_tabs.tabData(i)
+        is_cur = bool(self.py_path) and path == str(self.py_path)
+        if is_cur:
+            if not self._confirm_discard():
+                return
+        elif path in self._stash:
+            r = QMessageBox.question(self, "저장하지 않은 변경", f"{Path(path).name} 의 변경을 저장할까요?",
+                                     QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel)
+            if r == QMessageBox.Cancel:
+                return
+            if r == QMessageBox.Save and not self._save_stashed(path):
+                return
+            self._stash.pop(path, None)
+            recovery.clear(path)
+        self.file_tabs.blockSignals(True)
+        self.file_tabs.removeTab(i)
+        self.file_tabs.blockSignals(False)
+        if self.file_tabs.count() == 0:
+            self.file_tabs.setVisible(False)
+            self.stack.setCurrentIndex(0)
+            self.py_path = None
+            self.editor.document().setModified(False)
+            self._update_title()
+        elif is_cur:
+            self.py_path = None
+            self.editor.document().setModified(False)
+            self.open_path(self.file_tabs.tabData(min(i, self.file_tabs.count() - 1)))
+        self._refresh_tab_titles()
+
+    def _save_stashed(self, path) -> bool:
+        try:
+            _, enc, crlf = read_text(Path(path))
+            with open(path, "w", encoding=enc, newline="\r\n" if crlf else "\n") as f:
+                f.write(self._stash[path]["text"])
+        except OSError as e:
+            QMessageBox.critical(self, "저장 실패", str(e))
+            return False
+        return True
+
+    def _confirm_all(self) -> bool:
+        """Closing the app: ask about the shown file, then about every other tab with unsaved edits."""
+        if not self._confirm_discard():
+            return False
+        for path in list(self._stash):
+            r = QMessageBox.question(self, "저장하지 않은 변경", f"{Path(path).name} 의 변경을 저장할까요?",
+                                     QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel)
+            if r == QMessageBox.Cancel or (r == QMessageBox.Save and not self._save_stashed(path)):
+                return False
+            self._stash.pop(path, None)
+            recovery.clear(path)
         return True
 
     def _on_ui_combo(self, idx):
@@ -1350,7 +1508,7 @@ class MainWindow(QMainWindow):
             f = item.font(0)
             f.setItalic(not used)
             item.setFont(0, f)
-            item.setForeground(0, QColor("#202020" if used else "#a0a0a0"))
+            item.setForeground(0, QColor(theme.T["text"] if used else theme.T["unused"]))
             item.setToolTip(0, "" if used else "Main.py에서 아직 쓰지 않는 위젯")
 
     # ---------------------------------------------------------- drag & drop
@@ -1369,7 +1527,7 @@ class MainWindow(QMainWindow):
         cur = self.output.textCursor()
         cur.movePosition(cur.End)
         fmt = cur.charFormat()
-        fmt.setForeground(QColor(color or "#202020"))
+        fmt.setForeground(QColor(color or theme.T["text"]))
         cur.setCharFormat(fmt)
         cur.insertText(text)
         self.output.setTextCursor(cur)
@@ -1377,7 +1535,7 @@ class MainWindow(QMainWindow):
 
     # -------------------------------------------------------------- closing
     def closeEvent(self, e):
-        if not self._confirm_discard():
+        if not self._confirm_all():
             e.ignore()
             return
         self.stop()

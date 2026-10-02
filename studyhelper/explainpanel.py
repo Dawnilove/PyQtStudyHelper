@@ -9,7 +9,7 @@ from PyQt5.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QDialo
 
 import re
 
-from . import ai, explain, notes
+from . import ai, explain, notes, theme
 
 
 # ------------------------------------------------------------- line explainer
@@ -34,7 +34,7 @@ class LineExplainView(QTextBrowser):
         items = explain.explain_line(line)
         ctx = explain.context_of(lines, idx)
         h = [f"<div style='font-size:10pt'>",
-             f"<pre style='background:#f4f4f4;padding:4px;white-space:pre-wrap'>"
+             f"<pre style='background:{theme.T['pre_bg']};padding:4px;white-space:pre-wrap'>"
              f"{idx + 1:>3}  {escape(line.strip())}</pre>"]
         if ctx:
             h.append(f"<p style='color:#0b6bcb;margin:2px 0 6px 0'>📍 {escape(ctx)}</p>")

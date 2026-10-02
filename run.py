@@ -48,7 +48,6 @@ def main():
     font.setFamily("Malgun Gothic")
     font.setPointSize(10)
     app.setFont(font)
-    app.setStyleSheet(STYLE)
     w = MainWindow()
     w.show()
     # with a file argument (dropped on the icon / launcher .bat) open it; otherwise the start screen
@@ -57,32 +56,6 @@ def main():
     sys.exit(app.exec_())
 
 
-STYLE = """
-QLabel#paneTitle { background: #eef2f8; color: #1f3a5f; border-bottom: 1px solid #d3dce9; padding: 1px 4px; }
-QPushButton#bigButton { font-size: 12pt; padding: 10px 18px; background: #2f6fd0; color: white;
-                        border: none; border-radius: 6px; }
-QPushButton#bigButton:hover { background: #255db3; }
-QWidget#welcome { background: #fafbfd; }
-QToolBar { spacing: 4px; padding: 3px; border-bottom: 1px solid #d9dfe7; }
-QToolButton { padding: 4px 8px; border: 1px solid transparent; border-radius: 4px; }
-QToolButton:hover { background: #e6eefb; border-color: #c4d4ee; }
-QToolButton:disabled { color: #aaa; }
-QSplitter::handle { background: #e3e8ef; }
-QSplitter::handle:hover { background: #9db8e6; }
-QSplitter::handle:horizontal { width: 3px; }
-QSplitter::handle:vertical { height: 3px; }
-QLabel#explorerTitle { padding-left: 2px; }
-QLabel#explorerHint { font-size: 9pt; }
-QPushButton:flat { border: none; padding: 3px 5px; border-radius: 4px; }
-QPushButton:flat:hover { background: #e6eefb; }
-QTabWidget::pane { border: 1px solid #d3dce9; top: -1px; }
-QTabBar::tab:selected { font-weight: bold; }
-QTabBar::tab { padding: 5px 14px; }
-QStatusBar QLabel { color: #555; padding: 0 6px; }
-QWidget#tips { background: #fff8e1; border-bottom: 1px solid #f0dca0; }
-QWidget#findBar { background: #f7f8fa; border-top: 1px solid #dde3ea; }
-QLabel#legend { background: #f7f8fa; border-top: 1px solid #dde3ea; padding: 3px 6px; font-size: 9pt; }
-"""
 
 
 if __name__ == "__main__":

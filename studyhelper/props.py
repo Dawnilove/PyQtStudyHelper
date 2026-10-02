@@ -7,7 +7,7 @@ from PyQt5.QtWidgets import (QHeaderView, QLabel, QListWidget, QListWidgetItem, 
                              QPushButton, QTabWidget, QTableWidget, QTableWidgetItem, QTextBrowser,
                              QVBoxLayout, QWidget)
 
-from . import codeview, notes
+from . import codeview, notes, theme
 from .ui_model import editable_value
 
 MONO = QFont("Consolas", 10)
@@ -158,7 +158,7 @@ class PropertyPanel(QWidget):
                 val.setToolTip(f"더블클릭해서 고치면 .ui에 저장돼요 ({tag})")
             else:
                 val.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
-                val.setBackground(QColor("#f2f2f2"))
+                val.setBackground(QColor(theme.T["readonly_cell"]))
                 val.setToolTip("복잡한 속성이라 Designer에서 바꿔 주세요")
             self.table.setItem(r, 1, val)
         self._filling = False
@@ -200,7 +200,7 @@ class PropertyPanel(QWidget):
         html = ["<div style='font-size:10pt'>",
                 "<p style='color:#666'>pyuic가 gui.ui를 파이썬으로 바꿀 때 이 위젯에 대해 만드는 줄이에요.</p>"]
         for line, why in rows:
-            html.append(f"<pre style='background:#f4f4f4;margin:6px 0 0 0;padding:4px;white-space:pre-wrap'>"
+            html.append(f"<pre style='background:{theme.T['pre_bg']};margin:6px 0 0 0;padding:4px;white-space:pre-wrap'>"
                         f"{escape(line)}</pre>")
             if why:
                 html.append(f"<div style='color:#555;margin:2px 0 0 8px'>→ {escape(why)}</div>")

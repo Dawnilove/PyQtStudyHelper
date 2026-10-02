@@ -1,5 +1,6 @@
 """Find the .ui file a Python file uses (and the reverse)."""
 import ast
+import codecs
 import re
 from pathlib import Path
 
@@ -7,7 +8,7 @@ from pathlib import Path
 def read_text(path) -> tuple[str, str, bool]:
     """(text, encoding, uses_crlf) — text always uses '\\n'."""
     data = Path(path).read_bytes()
-    for enc in ("utf-8-sig", "cp949"):
+    for enc in (("utf-8-sig",) if data.startswith(codecs.BOM_UTF8) else ("utf-8",)) + ("cp949",):  # keep a BOM only if the file had one
         try:
             text = data.decode(enc)
             break
