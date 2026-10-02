@@ -157,6 +157,8 @@ class MainWindow(QMainWindow):
                            "선택한 줄(없으면 현재 줄)을 AI가 설명 (Ctrl+E)")
         self.a_review = A("AI 코드 리뷰", self.ai_review, "Ctrl+Shift+R", None, "Main.py 전체 리뷰")
         self.a_ai_settings = A("AI 모델·키 설정…", self.ai_settings)
+        self.a_free_ai = A("무료 AI 켜기 (Gemini)…", self.free_ai, None, None,
+                           "구글 계정만 있으면 무료 — 키를 한 번 연결하면 답이 도우미 안에 바로 나와요")
         self.a_zoom_in = A("글자 크게", lambda: self.zoom(1), QKeySequence.ZoomIn)
         self.a_zoom_out = A("글자 작게", lambda: self.zoom(-1), QKeySequence.ZoomOut)
         self.a_zoom_reset = A("글자 크기 원래대로", lambda: self.zoom(0), "Ctrl+0")
@@ -194,6 +196,7 @@ class MainWindow(QMainWindow):
         for a in (self.a_explain, self.a_review):
             m.addAction(a)
         m.addSeparator()
+        m.addAction(self.a_free_ai)
         m.addAction(self.a_ai_settings)
         m = mb.addMenu("보기(&V)")
         for a in (self.a_zoom_in, self.a_zoom_out, self.a_zoom_reset):
@@ -261,6 +264,7 @@ class MainWindow(QMainWindow):
         self.line_view.anchorClicked.connect(lambda url: self.open_note(url.toString()))
         self.ai_panel = AiPanel()
         self.ai_panel.settingsRequested.connect(self.ai_settings)
+        self.ai_panel.freeAiRequested.connect(self.free_ai)
         self.ai_panel.explainRequested.connect(self.ai_explain)
         self.ai_panel.reviewRequested.connect(self.ai_review)
         self.explain_tabs = QTabWidget()
@@ -577,6 +581,16 @@ class MainWindow(QMainWindow):
             self.save_py()
         self.explain_tabs.setCurrentWidget(self.ai_panel)
         self.ai_panel.start(self._ai_context(), ai.REVIEW_TASK, f"{self.py_path.name} 전체 리뷰")
+
+    def free_ai(self):
+        from .freeai import FreeAiDialog
+        dlg = FreeAiDialog(self)
+        dlg.exec_()
+        self._update_ai_status()
+        if dlg.done_ok:
+            self.ai_panel.show_welcome()
+            self.explain_tabs.setCurrentWidget(self.ai_panel)
+            self._status("무료 AI(Gemini)가 연결됐어요. 코드를 선택하고 Ctrl+E를 눌러 보세요.", 10000)
 
     def ai_settings(self):
         if AiSettingsDialog(self).exec_():

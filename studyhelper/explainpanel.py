@@ -231,6 +231,7 @@ class AiSettingsDialog(QDialog):
 # ------------------------------------------------------------------ AI panel
 class AiPanel(QWidget):
     settingsRequested = pyqtSignal()
+    freeAiRequested = pyqtSignal()       # "무료 AI 켜기" wizard
     explainRequested = pyqtSignal()      # main window supplies the selected code
     reviewRequested = pyqtSignal()
 
@@ -248,6 +249,11 @@ class AiPanel(QWidget):
         self.b_stop = QPushButton("중지")
         self.b_stop.setEnabled(False)
         self.b_stop.clicked.connect(self.stop)
+        self.b_free = QPushButton("무료 AI 켜기")
+        self.b_free.setStyleSheet("QPushButton { background:#2f6fd0; color:white; border:none; "
+                                  "border-radius:4px; padding:4px 10px; } QPushButton:hover { background:#255db3; }")
+        self.b_free.setToolTip("구글 계정만 있으면 무료. 키를 한 번만 연결하면 답이 도우미 안에 바로 나와요")
+        self.b_free.clicked.connect(self.freeAiRequested)
         self.b_model = QPushButton()
         self.b_model.setToolTip("AI 모델·API 키 설정")
         self.b_model.clicked.connect(self.settingsRequested)
@@ -258,6 +264,7 @@ class AiPanel(QWidget):
         self.b_recopy.clicked.connect(self.recopy)
         self.b_recopy.setVisible(False)
         top.addWidget(self.b_recopy)
+        top.addWidget(self.b_free)
         self.b_unwatch = QPushButton("답 가져오기 끝")
         self.b_unwatch.setToolTip("웹 AI에서 복사한 답을 더 이상 가져오지 않아요 (다른 걸 복사해도 안 들어오게)")
         self.b_unwatch.clicked.connect(lambda: self._set_watching(False))
@@ -305,6 +312,7 @@ class AiPanel(QWidget):
     def show_welcome(self):
         model = ai.get_model()
         self.b_model.setText(f"AI: {ai.short_name(model)} · 설정")
+        self.b_free.setVisible(ai.provider_of(model) == "web" or not ai.ready(model))   # hide once an API AI works
         if ai.provider_of(model) == "web":
             self.question.setPlaceholderText("이어서 물어볼 말을 쓰고 Enter → 복사돼요 (웹 창에 붙여넣기)")
             self.view.setHtml(
