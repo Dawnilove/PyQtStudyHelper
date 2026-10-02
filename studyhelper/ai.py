@@ -139,10 +139,15 @@ def find_claude() -> str | None:
         try:
             for v in os.listdir(r):
                 if re.fullmatch(r"\d+\.\d+\.\d+", v):
-                    versions.append((tuple(map(int, v.split("."))), os.path.join(r, v, "claude.exe")))
+                    key = tuple(map(int, v.split(".")))
+                    vdir = os.path.join(r, v)
+                    # older apps: <version>\claude.exe ; newer: <version>\<hash>\claude.exe
+                    versions.append((key, os.path.join(vdir, "claude.exe")))
+                    for sub in glob.glob(os.path.join(vdir, "*", "claude.exe")):
+                        versions.append((key, sub))
         except OSError:
             pass
-    cands += [p for _, p in sorted(versions, reverse=True)]
+    cands += [p for _, p in sorted(versions, reverse=True)]       # newest version first
     return next((p for p in cands if p and os.path.isfile(p)), None)
 
 
