@@ -15,10 +15,11 @@ from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import (QAction, QComboBox, QDialog, QFileDialog, QLabel, QListWidget, QListWidgetItem,
                              QMainWindow, QMessageBox, QPlainTextEdit, QSizePolicy, QSplitter, QStyle,
                              QTabWidget, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
-                             QStackedWidget, QPushButton, QHBoxLayout, QTextBrowser, QMenu)
+                             QStackedWidget, QPushButton, QHBoxLayout, QTextBrowser, QMenu, QDockWidget)
 
 from . import ai, checker, codeview, errors, notes
 from .challenge import ChallengeWindow
+from .explorer import ExplorerPanel
 from .renamedialog import RenameDialog
 from .signaldialog import SignalInsertDialog
 from .ui_model import rename_object, set_property
@@ -145,6 +146,9 @@ class MainWindow(QMainWindow):
         A = lambda text, slot, key=None, icon=None, tip=None: self._action(text, slot, key, icon, tip)
         self.a_open = A("열기…", self.open_dialog, QKeySequence.Open, QStyle.SP_DialogOpenButton,
                         "Main.py 또는 .ui 파일 열기 (파일을 창에 끌어다 놓아도 돼요)")
+        self.a_explorer = A("탐색기 보기", self.toggle_explorer, "Ctrl+B", None,
+                            "왼쪽의 파일 목록(학습 폴더 또는 최근 파일)을 보이거나 숨겨요 (Ctrl+B)")
+        self.a_explorer.setCheckable(True)
         self.a_study = A("학습 폴더 관리…", self.manage_study_folders, None, None,
                          "자주 여는 학습 폴더를 등록하면 파일 열기 창 왼쪽에 바로가기로 나와요")
         self.a_save = A("저장", self.save_py, QKeySequence.Save, QStyle.SP_DialogSaveButton)
@@ -202,6 +206,7 @@ class MainWindow(QMainWindow):
         for a in (self.a_zoom_in, self.a_zoom_out, self.a_zoom_reset):
             m.addAction(a)
         m.addSeparator()
+        m.addAction(self.a_explorer)
         m.addAction(self.a_legend)
         m.addAction(self.a_reset_layout)
         m.addAction(self.a_vault)
@@ -314,6 +319,19 @@ class MainWindow(QMainWindow):
         self.stack.addWidget(self._build_welcome())
         self.stack.addWidget(main)
         self.setCentralWidget(self.stack)
+        self.explorer = ExplorerPanel()
+        self.explorer.openRequested.connect(self.open_path)
+        self.explorer.manageRequested.connect(self.manage_study_folders)
+        self.explorer_dock = QDockWidget("탐색기", self)
+        self.explorer_dock.setObjectName("explorerDock")
+        self.explorer_dock.setWidget(self.explorer)
+        self.explorer_dock.setTitleBarWidget(QWidget())          # no title bar: it's a plain side panel
+        self.explorer_dock.setFeatures(QDockWidget.NoDockWidgetFeatures)
+        self.explorer_dock.setMinimumWidth(170)
+        self.addDockWidget(Qt.LeftDockWidgetArea, self.explorer_dock)
+        want = self.settings.value("view/explorer", True) not in (False, "false")
+        self.a_explorer.setChecked(want)
+        self.resizeDocks([self.explorer_dock], [int(self.settings.value("explorer/width", 250))], Qt.Horizontal)
         self.stack.currentChanged.connect(self._on_page_changed)
         self._on_page_changed(0)
 
@@ -419,6 +437,7 @@ class MainWindow(QMainWindow):
             self.recent_list.addItem(it)
         has_study = self._fill_study_sections(separator=bool(recent))
         self.recent_menu.setEnabled(bool(recent) or has_study)
+        self._refresh_explorer()
 
     def _fill_study_sections(self, separator: bool) -> bool:
         """Under the real recent files: one section per study folder listing its Main files.
@@ -476,8 +495,23 @@ class MainWindow(QMainWindow):
                   self.a_zoom_in, self.a_zoom_out, self.a_zoom_reset):
             a.setEnabled(on)
         self.ui_combo.setEnabled(on)
+        self.a_explorer.setEnabled(on)
+        self.explorer_dock.setVisible(on and self.a_explorer.isChecked())     # the start screen lists files itself
         if idx == 0:
             self._rescan_study()                   # also runs once at start-up, when the start screen is built
+
+    # --------------------------------------------------------------- explorer
+    def toggle_explorer(self):
+        on = self.a_explorer.isChecked()
+        self.settings.setValue("view/explorer", on)
+        self.explorer_dock.setVisible(on and self.stack.currentIndex() == 1)
+
+    def _refresh_explorer(self):
+        """Study folders (if any) else the recent files; the open file is highlighted."""
+        if not hasattr(self, "explorer"):
+            return
+        self.explorer.set_data(existing_folders(load_folders(self.settings)), self._recent(),
+                               str(self.py_path) if self.py_path else "")
 
     # --------------------------------------------------------------- view
     def zoom(self, step):
@@ -505,6 +539,7 @@ class MainWindow(QMainWindow):
             "<table cellspacing=4>"
             "<tr><td><b>Ctrl+O</b></td><td>Main.py / .ui 열기 (창에 끌어다 놓아도 됨)</td></tr>"
             "<tr><td><b>Ctrl+S</b></td><td>Main.py 저장</td></tr>"
+            "<tr><td><b>Ctrl+B</b></td><td>왼쪽 탐색기 보이기/숨기기 (학습 폴더 또는 최근 파일)</td></tr>"
             "<tr><td><b>F5 / Shift+F5</b></td><td>실행 / 중지</td></tr>"
             "<tr><td><b>Ctrl+D</b></td><td>.ui를 Qt Designer로 열기 (저장하면 자동 반영)</td></tr>"
             "<tr><td><b>Ctrl+E</b></td><td>선택한 줄을 AI에게 설명 듣기</td></tr>"
@@ -1276,6 +1311,8 @@ class MainWindow(QMainWindow):
             return
         self.stop()
         self.ai_panel.stop()
+        if self.explorer_dock.isVisible():
+            self.settings.setValue("explorer/width", self.explorer_dock.width())
         for k, s in self.splitters.items():
             self.settings.setValue(f"split2/{k}", s.saveState())
         e.accept()
