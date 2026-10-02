@@ -24,6 +24,8 @@ from .renamedialog import RenameDialog
 from .signaldialog import SignalInsertDialog
 from .ui_model import rename_object, set_property
 from .explainpanel import AiPanel, AiSettingsDialog, LineExplainView
+from . import recovery
+from .findbar import FindBar
 from .editor import CodeEditor
 from .locate import class_ui_ranges, import_mismatch, main_py_in, py_for_ui, read_text, ui_candidates
 from .preview import PreviewPane
@@ -152,6 +154,30 @@ class MainWindow(QMainWindow):
         self._check_timer = QTimer(self, singleShot=True, interval=400, timeout=self.run_check)
         self.editor.textChanged.connect(self._check_timer.start)
         self._update_title()
+        self._backup_timer = QTimer(self, interval=20000, timeout=self._backup_now)
+        self._backup_timer.start()
+
+    def _build_tips(self) -> QWidget:
+        """처음 쓰는 사람을 위한 한 줄 안내 (닫으면 다시 안 나와요)."""
+        bar = QWidget()
+        bar.setObjectName("tips")
+        lay = QHBoxLayout(bar)
+        lay.setContentsMargins(10, 4, 6, 4)
+        lab = QLabel("<b>처음이세요?</b> &nbsp; ① 코드의 <span style='color:#0b6bcb'><u>파란 이름</u></span>에 마우스를 올려 보세요 "
+                     "&nbsp; ② 궁금한 줄을 클릭하면 해설이 나와요 &nbsp; ③ <b>F5</b>로 실행 &nbsp; ④ 막히면 <b>F1</b>(사용법)")
+        lab.setWordWrap(True)
+        lab.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Minimum)
+        b = QPushButton("다시 보지 않기")
+        b.setFlat(True)
+        b.clicked.connect(lambda: (bar.setVisible(False), self.settings.setValue("tips/hidden", True)))
+        lay.addWidget(lab, 1)
+        lay.addWidget(b)
+        bar.setVisible(self.settings.value("tips/hidden", False) not in (True, "true"))
+        return bar
+
+    def _backup_now(self):
+        if self.py_path and self.editor.document().isModified():
+            recovery.save(self.py_path, self.editor.toPlainText())
 
     # ------------------------------------------------------------------ UI
     def _build_ui(self):
@@ -190,6 +216,8 @@ class MainWindow(QMainWindow):
         self.a_challenge = A("도전 모드…", self.start_challenge, "Ctrl+T", QStyle.SP_DialogApplyButton,
                              "목표 화면(.ui)을 보고 Designer로 똑같이 만들어 보기 — 저장할 때마다 자동 채점")
         self.challenge = None
+        self.a_find = A("찾기…", lambda: self.findbar.open_bar(False), QKeySequence.Find, None, "코드에서 찾기 (Ctrl+F)")
+        self.a_replace = A("바꾸기…", lambda: self.findbar.open_bar(True), "Ctrl+H", None, "찾아서 바꾸기 (Ctrl+H)")
         self.a_rename = A("objectName 바꾸기…", self.rename_selected, "F2", None,
                           "선택한 위젯의 이름을 .ui와 Main.py에서 한꺼번에 바꾸기 (F2)")
 
@@ -202,6 +230,9 @@ class MainWindow(QMainWindow):
         m.addSeparator()
         m.addAction(self.a_home)
         m.addAction(A("끝내기", self.close, "Ctrl+Q"))
+        m = mb.addMenu("편집(&E)")
+        m.addAction(self.a_find)
+        m.addAction(self.a_replace)
         m = mb.addMenu("실행(&R)")
         for a in (self.a_run, self.a_stop, self.a_designer):
             m.addAction(a)
@@ -308,6 +339,8 @@ class MainWindow(QMainWindow):
         self.legend.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Minimum)
         self.legend.setObjectName("legend")
         self.legend.setToolTip("<html>"+LEGEND_FULL+"<br>(보기 메뉴에서 끄고 켤 수 있어요)</html>")
+        self.findbar = FindBar(self.editor)
+        self.editor_box.layout().addWidget(self.findbar)
         self.editor_box.layout().addWidget(self.legend)
         right = QSplitter(Qt.Vertical)
         right.addWidget(_titled("선택한 위젯", self.panel))
@@ -334,7 +367,14 @@ class MainWindow(QMainWindow):
 
         self.stack = QStackedWidget()
         self.stack.addWidget(self._build_welcome())
-        self.stack.addWidget(main)
+        work = QWidget()
+        wl = QVBoxLayout(work)
+        wl.setContentsMargins(0, 0, 0, 0)
+        wl.setSpacing(0)
+        self.tips = self._build_tips()
+        wl.addWidget(self.tips)
+        wl.addWidget(main, 1)
+        self.stack.addWidget(work)
         self.setCentralWidget(self.stack)
         self.explorer = ExplorerPanel()
         self.explorer.openRequested.connect(self.open_path)
@@ -858,6 +898,14 @@ class MainWindow(QMainWindow):
         text, self.encoding, self.crlf = read_text(p)
         self.editor.setPlainText(text)
         self.editor.document().setModified(False)
+        lost = recovery.load(p, text)
+        if lost is not None and QMessageBox.question(
+                self, "복구", f"{p.name} 을(를) 저장하지 못하고 닫힌 흔적이 있어요.\n그때 작성하던 내용을 되살릴까요?",
+                QMessageBox.Yes | QMessageBox.No) == QMessageBox.Yes:
+            self.editor.setPlainText(lost.replace("\r\n", "\n"))
+            self.editor.document().setModified(True)
+        elif lost is not None:
+            recovery.clear(p)
 
         cands = ui_candidates(p)
         self._models = {}
@@ -1107,6 +1155,7 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "저장 실패", str(e))
             return False
         self.editor.document().setModified(False)
+        recovery.clear(self.py_path)
         self._mismatch = import_mismatch(self.py_path)
         self.run_check()
         self._status(f"{self.py_path.name} 저장함")
@@ -1119,7 +1168,10 @@ class MainWindow(QMainWindow):
                                  QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel)
         if r == QMessageBox.Save:
             return self.save_py()
-        return r == QMessageBox.Discard
+        if r == QMessageBox.Discard:
+            recovery.clear(self.py_path)
+            return True
+        return False
 
     # ------------------------------------------------------------- designer
     def open_designer(self):

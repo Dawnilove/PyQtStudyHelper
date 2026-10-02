@@ -28,6 +28,11 @@
 - **`.ui` 값 고치기**: `text` 같은 단순 속성은 속성 표에서 고치면 `.ui`에 바로 저장됩니다.
 - **자동완성** (Tab): `self.` 뒤에 `.ui`의 위젯 이름, `self.위젯.` 뒤에 그 위젯 클래스의 메서드·시그널(`clicked`, `setText` …)이 나옵니다.
 
+### 편하게 쓰기
+- **찾기·바꾸기** (Ctrl+F / Ctrl+H): 코드 아래에 막대가 열려요. Enter/Shift+Enter로 다음·이전, 대소문자 구분, 모두 바꾸기(Ctrl+Z 한 번에 되돌림).
+- **자동 백업·복구**: 저장 안 한 코드를 20초마다 임시 백업하고, 갑자기 꺼졌다면 다시 열 때 되살릴지 물어봐요.
+- **첫 실행 안내**: 처음에는 위에 4단계 안내가 나오고, "다시 보지 않기"로 끌 수 있어요.
+
 ### 연습하고 정리하기
 - **도전 모드** (Ctrl+T): 목표 화면 `.ui`를 보고 Designer로 똑같이 만들면, 저장할 때마다 체크리스트로 자동 채점합니다.
 - **왼쪽 탐색기** (VS Code처럼, Ctrl+B로 보이기/숨기기): 학습 폴더를 등록했으면 **폴더 트리**가, 등록하지 않았으면 **최근 파일**이 보입니다. 파일(`.py`·`.ui`)을 클릭하면 바로 열리고, 지금 열린 파일은 강조되며 폴더가 그 위치까지 펼쳐집니다.
@@ -97,6 +102,8 @@ studyhelper/
   codegen.py, signaldialog.py  시그널 연결 코드 만들기
   renamedialog.py       objectName 바꾸기
   challenge.py          도전 모드
+  findbar.py            찾기·바꾸기 막대
+  recovery.py           저장 안 한 코드 임시 백업
   explorer.py           왼쪽 탐색기 (학습 폴더 트리 / 최근 파일)
   studyfolders.py       학습 폴더
   notes.py              내 노트 검색·열기
@@ -112,6 +119,10 @@ python -m unittest discover -s tests -t .
 ```
 
 화면 없이 돌리려면 환경변수 `QT_QPA_PLATFORM=offscreen`을 지정하세요.
+
+## 라이선스
+
+MIT (`LICENSE`).
 
 ## 기여
 

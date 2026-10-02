@@ -79,6 +79,8 @@ QTabWidget::pane { border: 1px solid #d3dce9; top: -1px; }
 QTabBar::tab:selected { font-weight: bold; }
 QTabBar::tab { padding: 5px 14px; }
 QStatusBar QLabel { color: #555; padding: 0 6px; }
+QWidget#tips { background: #fff8e1; border-bottom: 1px solid #f0dca0; }
+QWidget#findBar { background: #f7f8fa; border-top: 1px solid #dde3ea; }
 QLabel#legend { background: #f7f8fa; border-top: 1px solid #dde3ea; padding: 3px 6px; font-size: 9pt; }
 """
 
