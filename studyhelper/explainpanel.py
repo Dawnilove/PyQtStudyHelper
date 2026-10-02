@@ -83,6 +83,12 @@ class AiSettingsDialog(QDialog):
         lay.addSpacing(8)
         self.key_title = QLabel()
         lay.addWidget(self.key_title)
+        self.login_btn = QPushButton("Claude Code 로그인 창 열기")
+        self.login_btn.setToolTip("처음 한 번만 로그인하면 돼요. 로그인을 마친 뒤 [연결 테스트]를 눌러 주세요")
+        self.login_btn.clicked.connect(lambda: ai.open_claude_login() or
+                                       self.result.setText("<span style='color:#c0392b'>claude.exe를 찾지 못했어요.</span>"))
+        self.login_btn.setVisible(False)
+        lay.addWidget(self.login_btn)
         self.key_row = QWidget()
         row = QHBoxLayout(self.key_row)
         row.setContentsMargins(0, 0, 0, 0)
@@ -133,7 +139,8 @@ class AiSettingsDialog(QDialog):
         groups["ollama"] = [(f"ollama:{n}", ai.label_of(f"ollama:{n}")) for n in local] or \
                            [(f"ollama:{ai.OLLAMA_SUGGEST}", f"{ai.OLLAMA_SUGGEST} — 내 PC · 완전 무료 (Ollama 설치 필요)")]
         groups["web"] = [(mid, label) for mid, label, _ in ai.WEB_TARGETS]
-        for prov in ("web", "gemini", "claude", "openai", "ollama"):
+        groups["claudecode"] = [(ai.CLAUDE_CODE_MODEL, ai.label_of(ai.CLAUDE_CODE_MODEL))]
+        for prov in ("claudecode", "web", "gemini", "claude", "openai", "ollama"):
             self.model.addItem(f"── {ai.PROVIDERS[prov]['name']} ──")
             self.model.model().item(self.model.count() - 1).setEnabled(False)
             for mid, label in groups.get(prov, []):
@@ -159,6 +166,10 @@ class AiSettingsDialog(QDialog):
         p = ai.PROVIDERS[prov]
         free = next((f for mid, _, _, f in ai.MODELS if mid == model), prov == "ollama")
         notes_ = {
+            "claudecode": ("이 PC에 설치된 <b>Claude Code</b>(Claude 데스크톱 앱 포함)를 창 없이 불러와서, "
+                           "<b>내 Claude 구독</b>으로 답을 받아요. <b>API 키가 필요 없고</b> 답이 도우미 안에 바로 나와요.<br>"
+                           "Claude 유료 구독(Pro/Max 등)과 Claude Code 로그인이 필요해요. 구독 사용량이 차감돼요. "
+                           "도구·파일 접근 없이 답만 받도록 실행해요."),
             "web": ("<b>무료 · 키 필요 없음.</b> Ctrl+E를 누르면 질문(코드 포함)이 <b>복사</b>되고 웹 AI 창이 열려요. "
                     "그 창에 <b>Ctrl+V → Enter</b> 하면 돼요. 무료 계정 로그인이 필요할 수 있어요.<br>"
                     "답은 도우미 안이 아니라 웹 창에 나와요. 내 코드가 그 사이트로 보내진다는 점은 알아 두세요."),
@@ -173,7 +184,8 @@ class AiSettingsDialog(QDialog):
                        "PC 성능에 따라 느릴 수 있고, 답의 품질은 클라우드 모델보다 낮을 수 있어요."),
         }
         self.free_note.setText(f"<span style='color:#555'>{notes_[prov]}</span>")
-        is_local = prov in ("ollama", "web")
+        is_local = prov in ("ollama", "web", "claudecode")
+        self.login_btn.setVisible(prov == "claudecode")
         self.key_row.setVisible(not is_local)
         self.delete_btn.setVisible(not is_local)
         self.test_btn.setVisible(prov != "web")
@@ -187,12 +199,15 @@ class AiSettingsDialog(QDialog):
         if not ai.package_ok(prov):
             self.result.setText(f"<span style='color:#c0392b'>{p['package']} 패키지가 없어요. "
                                 "install.bat 을 다시 실행해 주세요.</span>")
+        elif prov == "claudecode":        # installed? signed in? (nothing is sent)
+            ok, msg = ai.claude_code_status()
+            self.result.setText(f"<span style='color:{'#2b8a3e' if ok else '#c0392b'}'>{msg}</span>")
         else:
             self.result.setText("")
 
     def _test(self):
         model = self.current_model()
-        key = self.key.text().strip() if self._prov not in ("ollama", "web") else "local"
+        key = self.key.text().strip() if self._prov not in ("ollama", "web", "claudecode") else "local"
         if not key:
             self.result.setText("<span style='color:#c0392b'>키를 먼저 넣어 주세요.</span>")
             return
@@ -214,7 +229,7 @@ class AiSettingsDialog(QDialog):
             return
         self._keys[self._prov] = self.key.text()
         for prov, k in self._keys.items():
-            if prov not in ("ollama", "web") and k.strip() != ai.get_key(prov):
+            if prov not in ("ollama", "web", "claudecode") and k.strip() != ai.get_key(prov):
                 ai.set_key(prov, k)
         ai.set_model(model)
         self.accept()

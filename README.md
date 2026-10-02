@@ -59,6 +59,7 @@
 | 방법 | 비용 | 설정 |
 |---|---|---|
 | **무료 AI 켜기** (Gemini 무료 티어) ← 추천 | 무료 (사용량 제한) | AI 해설 탭의 파란 **무료 AI 켜기** 버튼 → 구글 AI Studio에서 키를 만들어 **복사 버튼**만 누르면 자동 연결 |
+| **Claude Code 구독** (내 PC의 Claude Code) | 내 Claude 유료 구독 사용량 | AI 메뉴 → AI 모델·키 설정에서 선택. 이 PC에 Claude Code(Claude 데스크톱 앱 포함)가 로그인돼 있으면 **API 키 없이** 창 없이 불러와 답이 도우미 안에 나옴 |
 | **웹 AI** (ChatGPT / Gemini / Claude 웹) | 무료 계정 | 기본값. Ctrl+E를 누르면 질문이 복사되고 웹 창이 열립니다. 붙여넣고, 답의 복사 버튼을 누르면 답이 도우미로 들어옵니다 |
 | **Ollama** (내 PC) | 완전 무료, 인터넷 불필요 | [Ollama](https://ollama.com/download) 설치 후 모델 받기 (PC 성능 필요) |
 | **Claude · GPT · Gemini API** | 유료 | AI 메뉴 → AI 모델·키 설정에서 키 입력 |

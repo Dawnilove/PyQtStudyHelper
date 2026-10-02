@@ -4,11 +4,14 @@ Keys are the user's own and live in Windows Credential Manager (keyring), one pe
 """
 import json
 import os
+import shutil
+import subprocess
 import urllib.request
 
 from PyQt5.QtCore import QSettings, QThread, pyqtSignal
 
 SERVICE = "PyQtStudyHelper"
+_NO_WINDOW = 0x08000000          # CREATE_NO_WINDOW: no console flash when running claude.exe
 OLLAMA_URL = "http://localhost:11434"
 
 PROVIDERS = {
@@ -23,7 +26,11 @@ PROVIDERS = {
                    package="openai", hint=""),
     "web": dict(name="웹 AI (무료 · 키 필요 없음)", key_name=None, env=(), key_page="",
                 package=None, hint=""),
+    "claudecode": dict(name="Claude Code 구독 (내 PC)", key_name=None, env=(), key_page="",
+                       package=None, hint=""),
 }
+
+CLAUDE_CODE_MODEL = "cc:claude"        # the Claude Code installed on this PC, signed in with the user's own plan
 
 # Free web chats: the helper copies the question to the clipboard and opens the site;
 # the user pastes it there. No API, no key, nothing unofficial.
@@ -76,6 +83,8 @@ REVIEW_TASK = """Main.py 전체를 초보자 눈높이로 코드 리뷰해 주�
 def provider_of(model: str) -> str:
     if model.startswith("web:"):
         return "web"
+    if model.startswith("cc:"):
+        return "claudecode"
     for mid, _, prov, _ in MODELS:
         if mid == model:
             return prov
@@ -97,6 +106,8 @@ def label_of(model: str) -> str:
             return label
     if model.startswith("ollama:"):
         return f"{model[7:]} — 내 PC · 완전 무료"
+    if model == CLAUDE_CODE_MODEL:
+        return "Claude Code — 내 Claude 구독으로 (API 키 필요 없음)"
     return model
 
 
@@ -105,6 +116,66 @@ def short_name(model: str) -> str:
     if model.startswith("web:"):
         return {"web:chatgpt": "ChatGPT 웹", "web:gemini": "Gemini 웹", "web:claude": "Claude 웹"}.get(model, model)
     return model.replace("ollama:", "내 PC ")
+
+
+# ------------------------------------------------------------ Claude Code (subscription)
+def find_claude() -> str | None:
+    """claude.exe: PATH -> common install places -> inside the Claude desktop app (newest version)."""
+    import glob
+    import re
+    home = os.path.expanduser("~")
+    local, roam = os.environ.get("LOCALAPPDATA", ""), os.environ.get("APPDATA", "")
+    cands = [shutil.which("claude.exe") or "",
+             os.path.join(home, ".local", "bin", "claude.exe"),
+             os.path.join(local, "Microsoft", "WinGet", "Links", "claude.exe"),
+             os.path.join(local, "Programs", "claude", "claude.exe"),
+             os.path.join(home, ".claude", "local", "claude.exe"),
+             os.path.join(roam, "npm", "node_modules", "@anthropic-ai", "claude-code", "bin", "claude.exe")]
+    roots = [os.path.join(roam, "Claude", "claude-code")]
+    # Microsoft Store install keeps %APPDATA% data under Packages\Claude_*\LocalCache
+    roots += glob.glob(os.path.join(local, "Packages", "Claude_*", "LocalCache", "Roaming", "Claude", "claude-code"))
+    versions = []
+    for r in roots:
+        try:
+            for v in os.listdir(r):
+                if re.fullmatch(r"\d+\.\d+\.\d+", v):
+                    versions.append((tuple(map(int, v.split("."))), os.path.join(r, v, "claude.exe")))
+        except OSError:
+            pass
+    cands += [p for _, p in sorted(versions, reverse=True)]
+    return next((p for p in cands if p and os.path.isfile(p)), None)
+
+
+def _clean_env() -> dict:
+    """Make Claude Code use the subscription login, not a leftover API key."""
+    return {k: v for k, v in os.environ.items()
+            if k not in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL")}
+
+
+def claude_code_status() -> tuple[bool, str]:
+    """(usable, message) — installed? signed in? Sends no question."""
+    exe = find_claude()
+    if not exe:
+        return False, ("이 PC에서 Claude Code(claude.exe)를 찾지 못했어요. Claude 데스크톱 앱 또는 Claude Code를 "
+                       "설치하고 로그인한 뒤 다시 시도해 주세요.")
+    try:
+        r = subprocess.run([exe, "auth", "status"], capture_output=True, timeout=30, env=_clean_env(),
+                           creationflags=_NO_WINDOW)
+        data = json.loads(r.stdout.decode("utf-8", "replace") or "{}")
+    except Exception as e:
+        return False, f"Claude Code 상태를 확인하지 못했어요: {e}"
+    if data.get("loggedIn"):
+        return True, "Claude Code에 로그인돼 있어요."
+    return False, "Claude Code에 로그인돼 있지 않아요. [로그인 창 열기]를 눌러 한 번 로그인해 주세요."
+
+
+def open_claude_login() -> bool:
+    exe = find_claude()
+    if not exe:
+        return False
+    subprocess.Popen(["cmd.exe", "/c", "start", "Claude Code 로그인", exe, "auth", "login"],
+                     creationflags=_NO_WINDOW)
+    return True
 
 
 def web_url(model: str) -> str:
@@ -201,6 +272,8 @@ def package_ok(provider: str) -> bool:
 def ready(model: str | None = None) -> bool:
     model = model or get_model()
     prov = provider_of(model)
+    if prov == "claudecode":
+        return find_claude() is not None
     return package_ok(prov) and bool(get_key(prov))
 
 
@@ -254,6 +327,9 @@ def test_key(model: str, key: str) -> str | None:
             from google import genai
             client = genai.Client(api_key=key)          # keep a reference: a dropped client closes itself
             client.models.get(model=model)
+        elif prov == "claudecode":
+            ok, msg = claude_code_status()
+            return None if ok else msg
         else:
             names = ollama_models()
             if not names and not _ollama_running():
@@ -291,6 +367,9 @@ class AiWorker(QThread):
 
     def stop(self):
         self._stop = True
+        proc = getattr(self, "_proc", None)
+        if proc is not None and proc.poll() is None:
+            proc.kill()
 
     def _emit(self, t):
         if t:
@@ -330,6 +409,54 @@ class AiWorker(QThread):
         if final.stop_reason == "max_tokens":
             self._emit("\n\n*(답변이 길어 잘렸어요. '이어서 설명해 줘'라고 질문해 보세요.)*")
         return final.content          # keep blocks as-is for the next turn
+
+    # --- Claude Code (the user's own subscription, no API key) ----------------------
+    def _run_claudecode(self):
+        import tempfile
+        exe = find_claude()
+        if not exe:
+            raise RuntimeError(claude_code_status()[1])
+        empty = os.path.join(tempfile.gettempdir(), "PyQtStudyHelper_claude")      # no project files to read
+        os.makedirs(empty, exist_ok=True)
+        # answer only: no tools, no MCP, no settings/CLAUDE.md, nothing saved
+        args = [exe, "-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages",
+                "--tools", "", "--strict-mcp-config", "--setting-sources", "", "--no-session-persistence",
+                "--disable-slash-commands", "--system-prompt", SYSTEM]
+        past = self.history[:-1]
+        text = self.history[-1]["content"]
+        if past:        # -p is stateless: replay the conversation as text
+            text = ("[이전 대화]\n" + "\n\n".join(
+                f"{'학생' if m['role'] == 'user' else '튜터'}: {m['content']}" for m in past)
+                + f"\n\n[새 질문]\n{text}")
+        self._proc = subprocess.Popen(args, cwd=empty, env=_clean_env(), stdin=subprocess.PIPE,
+                                      stdout=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=_NO_WINDOW)
+        self._proc.stdin.write(text.encode("utf-8"))
+        self._proc.stdin.close()
+        for raw in self._proc.stdout:
+            if self._stop:
+                return None
+            try:
+                m = json.loads(raw.decode("utf-8"))
+            except ValueError:
+                continue
+            if m.get("type") == "stream_event":
+                ev = m.get("event") or {}
+                d = ev.get("delta") or {}
+                if ev.get("type") == "content_block_delta" and d.get("type") == "text_delta":
+                    self._emit(d.get("text", ""))
+            elif m.get("type") == "result":
+                result = m.get("result") or ""
+                if "not logged in" in result.lower():
+                    raise RuntimeError("Claude Code에 로그인돼 있지 않아요. 설정에서 [로그인 창 열기]를 눌러 주세요.")
+                if m.get("is_error"):
+                    raise RuntimeError(f"Claude Code 오류: {result[:300]}")
+                if not self._text and result:
+                    self._emit(result)
+                return None
+        if not self._stop:
+            err = self._proc.stderr.read().decode("utf-8", "replace").strip()
+            raise RuntimeError(err[:300] or f"Claude Code가 종료됐어요 (코드 {self._proc.wait()})")
+        return None
 
     # --- OpenAI (Responses API) ---------------------------------------------------
     def _run_openai(self):
