@@ -255,10 +255,10 @@ class AiPanel(QWidget):
         lay = QVBoxLayout(self)
         lay.setContentsMargins(4, 4, 4, 4)
         top = QHBoxLayout()
-        self.b_explain = QPushButton("선택 부분 설명 (Ctrl+E)")
-        self.b_explain.setToolTip("Main.py에서 선택한 줄들(선택이 없으면 현재 줄)을 설명해 줘요")
+        self.b_explain = QPushButton("선택 줄 설명")
+        self.b_explain.setToolTip("Main.py에서 선택한 줄들(선택이 없으면 현재 줄)을 설명해 줘요 (Ctrl+E)")
         self.b_explain.clicked.connect(self.explainRequested)
-        self.b_review = QPushButton("파일 전체 리뷰")
+        self.b_review = QPushButton("전체 리뷰")
         self.b_review.setToolTip("Main.py 전체를 보고 잘한 점·버그·개선점을 알려 줘요")
         self.b_review.clicked.connect(self.reviewRequested)
         self.b_stop = QPushButton("중지")
@@ -278,16 +278,19 @@ class AiPanel(QWidget):
         self.b_recopy.setToolTip("웹 AI에 붙여넣을 질문을 클립보드에 다시 복사해요")
         self.b_recopy.clicked.connect(self.recopy)
         self.b_recopy.setVisible(False)
-        top.addWidget(self.b_recopy)
-        top.addWidget(self.b_free)
+        top2 = QHBoxLayout()                     # second row: situational buttons, so the panel can stay narrow
+        top2.addWidget(self.b_recopy)
+        top2.addWidget(self.b_free)
         self.b_unwatch = QPushButton("답 가져오기 끝")
         self.b_unwatch.setToolTip("웹 AI에서 복사한 답을 더 이상 가져오지 않아요 (다른 걸 복사해도 안 들어오게)")
         self.b_unwatch.clicked.connect(lambda: self._set_watching(False))
         self.b_unwatch.setVisible(False)
-        top.addWidget(self.b_unwatch)
+        top2.addWidget(self.b_unwatch)
+        top2.addStretch(1)
         top.addStretch(1)
         top.addWidget(self.b_model)
         lay.addLayout(top)
+        lay.addLayout(top2)
 
         self.view = QTextBrowser()
         self.view.setOpenExternalLinks(True)
@@ -332,7 +335,7 @@ class AiPanel(QWidget):
             self.question.setPlaceholderText("이어서 물어볼 말을 쓰고 Enter → 복사돼요 (웹 창에 붙여넣기)")
             self.view.setHtml(
                 f"<h3>AI 해설 — {escape(ai.short_name(model))} (무료)</h3>"
-                "<ol><li>Main.py에서 궁금한 줄을 선택하고 <b>Ctrl+E</b> (또는 <b>파일 전체 리뷰</b>).</li>"
+                "<ol><li>Main.py에서 궁금한 줄을 선택하고 <b>Ctrl+E</b> (또는 <b>전체 리뷰</b>).</li>"
                 "<li>질문이 <b>자동으로 복사</b>되고 웹 AI 창이 열려요.</li>"
                 "<li>그 창의 입력칸에 <b>Ctrl+V → Enter</b>.</li>"
                 "<li>답 아래의 <b>복사 버튼</b>을 누르면 <b>답이 여기로 들어와요.</b></li></ol>"
@@ -351,7 +354,7 @@ class AiPanel(QWidget):
             self.view.setHtml(
                 f"<p>준비됐어요. <span style='color:#888'>({escape(ai.label_of(model))})</span></p>"
                 "<ul><li>Main.py에서 줄을 선택 → <b>Ctrl+E</b> 또는 우클릭 → AI에게 설명 듣기</li>"
-                "<li><b>파일 전체 리뷰</b>로 잘한 점·버그·개선점 받기</li></ul>")
+                "<li><b>전체 리뷰</b>로 잘한 점·버그·개선점 받기</li></ul>")
 
     def _render(self):
         self.view.setMarkdown(self.transcript + self.current)
@@ -439,8 +442,8 @@ class AiPanel(QWidget):
             return
         if ai.provider_of(self.conv_model or ai.get_model()) == "web":
             if not getattr(self, "_last_web", None):
-                self.view.setHtml("<p style='color:#c0392b'>먼저 <b>선택 부분 설명</b>이나 "
-                                  "<b>파일 전체 리뷰</b>를 시작해 주세요.</p>")
+                self.view.setHtml("<p style='color:#c0392b'>먼저 <b>선택 줄 설명</b>이나 "
+                                  "<b>전체 리뷰</b>를 시작해 주세요.</p>")
                 return
             self.question.clear()
             self._copy_own(q)
@@ -450,8 +453,8 @@ class AiPanel(QWidget):
             self._set_watching(True)
             return
         if not self.history:
-            self.view.setHtml("<p style='color:#c0392b'>먼저 <b>선택 부분 설명</b>이나 "
-                              "<b>파일 전체 리뷰</b>를 시작해 주세요.</p>")
+            self.view.setHtml("<p style='color:#c0392b'>먼저 <b>선택 줄 설명</b>이나 "
+                              "<b>전체 리뷰</b>를 시작해 주세요.</p>")
             return
         self.question.clear()
         self._send(q, f"\n\n---\n\n## 🧑 {q}\n\n")

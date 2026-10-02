@@ -58,13 +58,26 @@ def main():
 
 
 STYLE = """
-QLabel#paneTitle { background: #e9eef5; color: #1f3a5f; border-bottom: 1px solid #c9d4e3; }
+QLabel#paneTitle { background: #eef2f8; color: #1f3a5f; border-bottom: 1px solid #d3dce9; padding: 1px 4px; }
 QPushButton#bigButton { font-size: 12pt; padding: 10px 18px; background: #2f6fd0; color: white;
                         border: none; border-radius: 6px; }
 QPushButton#bigButton:hover { background: #255db3; }
 QWidget#welcome { background: #fafbfd; }
-QToolBar { spacing: 4px; padding: 3px; }
-QTabBar::tab { padding: 5px 12px; }
+QToolBar { spacing: 4px; padding: 3px; border-bottom: 1px solid #d9dfe7; }
+QToolButton { padding: 4px 8px; border: 1px solid transparent; border-radius: 4px; }
+QToolButton:hover { background: #e6eefb; border-color: #c4d4ee; }
+QToolButton:disabled { color: #aaa; }
+QSplitter::handle { background: #e3e8ef; }
+QSplitter::handle:hover { background: #9db8e6; }
+QSplitter::handle:horizontal { width: 3px; }
+QSplitter::handle:vertical { height: 3px; }
+QLabel#explorerTitle { padding-left: 2px; }
+QLabel#explorerHint { font-size: 9pt; }
+QPushButton:flat { border: none; padding: 3px 5px; border-radius: 4px; }
+QPushButton:flat:hover { background: #e6eefb; }
+QTabWidget::pane { border: 1px solid #d3dce9; top: -1px; }
+QTabBar::tab:selected { font-weight: bold; }
+QTabBar::tab { padding: 5px 14px; }
 QStatusBar QLabel { color: #555; padding: 0 6px; }
 QLabel#legend { background: #f7f8fa; border-top: 1px solid #dde3ea; padding: 3px 6px; font-size: 9pt; }
 """

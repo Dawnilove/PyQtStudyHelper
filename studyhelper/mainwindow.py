@@ -12,7 +12,7 @@ from PyQt5.QtCore import (QFileSystemWatcher, QProcess, QProcessEnvironment, QSe
 from PyQt5.QtCore import QUrl
 from PyQt5.QtGui import QColor, QDesktopServices, QFont, QKeySequence, QTextCursor
 from PyQt5.QtCore import pyqtSignal
-from PyQt5.QtWidgets import (QAction, QComboBox, QDialog, QFileDialog, QLabel, QListWidget, QListWidgetItem,
+from PyQt5.QtWidgets import (QAction, QApplication, QComboBox, QDialog, QFileDialog, QLabel, QListWidget, QListWidgetItem,
                              QMainWindow, QMessageBox, QPlainTextEdit, QSizePolicy, QSplitter, QStyle,
                              QTabWidget, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
                              QStackedWidget, QPushButton, QHBoxLayout, QTextBrowser, QMenu, QDockWidget)
@@ -77,7 +77,7 @@ def _chip(bg, fg, text, border=None):
     return (f"<span style='background:{bg};color:{fg};{b}'>&nbsp;{text}&nbsp;</span>")
 
 
-LEGEND = " &nbsp; ".join(f"<span style='white-space:nowrap'>{x}</span>" for x in [
+LEGEND_FULL = " &nbsp; ".join(f"<span style='white-space:nowrap'>{x}</span>" for x in [
     "<b>색 표시</b>",
     "<span style='color:#0b6bcb'><b><u>파란 밑줄</u></b></span> .ui 위젯 (마우스 올리기)",
     "<span style='color:#e03131'>〰 빨간 물결</span> .ui에 없는 이름",
@@ -87,6 +87,16 @@ LEGEND = " &nbsp; ".join(f"<span style='white-space:nowrap'>{x}</span>" for x in
     _chip("#d3f9d8", "#1e6b2e", "초록 줄") + " 방금 넣은 코드",
     _chip("#eaf2ff", "#1f3a5f", "파랑 줄") + " 지금 줄 (해설 대상)",
     "<span style='color:#e03131'>●</span> 문제 있는 줄 번호",
+])
+
+LEGEND = " &nbsp; ".join(f"<span style='white-space:nowrap'>{x}</span>" for x in [
+    "<span style='color:#0b6bcb'><u>파랑 밑줄</u></span> 위젯",
+    "<span style='color:#e03131'>〰 빨강</span> 없는 이름",
+    "<span style='color:#e8890c'>〰 주황</span> 주의",
+    _chip("#ffd666", "#5c3c00", "노랑") + " 선택",
+    _chip("#ffd9d9", "#8a1f1f", "빨강") + " 에러 줄",
+    _chip("#d3f9d8", "#1e6b2e", "초록") + " 방금 넣음",
+    _chip("#eaf2ff", "#1f3a5f", "파랑") + " 현재 줄",
 ])
 
 
@@ -130,7 +140,10 @@ class MainWindow(QMainWindow):
         self._class_ranges = []          # [(first, last, ui path, class name)] from class_ui_ranges
         self.setAcceptDrops(True)
 
-        self.resize(1500, 900)
+        scr = QApplication.primaryScreen().availableGeometry()
+        self.setMinimumSize(900, 600)
+        self.resize(min(1500, int(scr.width() * 0.94)), min(900, int(scr.height() * 0.92)))
+        self.move(scr.x() + (scr.width() - self.width()) // 2, scr.y() + (scr.height() - self.height()) // 2)
         self._build_ui()
         self.watcher = QFileSystemWatcher(self)
         self.watcher.fileChanged.connect(self._on_file_changed)
@@ -155,9 +168,9 @@ class MainWindow(QMainWindow):
         self.a_run = A("실행", self.run, "F5", QStyle.SP_MediaPlay, "Main.py 실행 (F5)")
         self.a_stop = A("중지", self.stop, "Shift+F5", QStyle.SP_MediaStop, "실행 중인 프로그램 끄기 (Shift+F5)")
         self.a_stop.setEnabled(False)
-        self.a_designer = A("Designer에서 열기", self.open_designer, "Ctrl+D", None,
+        self.a_designer = A("Designer", self.open_designer, "Ctrl+D", QStyle.SP_FileDialogDetailedView,
                             "지금 .ui 파일을 Qt Designer로 열기 (Ctrl+D)")
-        self.a_explain = A("AI에게 설명 듣기", self.ai_explain, "Ctrl+E", None,
+        self.a_explain = A("AI 설명", self.ai_explain, "Ctrl+E", QStyle.SP_MessageBoxInformation,
                            "선택한 줄(없으면 현재 줄)을 AI가 설명 (Ctrl+E)")
         self.a_review = A("AI 코드 리뷰", self.ai_review, "Ctrl+Shift+R", None, "Main.py 전체 리뷰")
         self.a_ai_settings = A("AI 모델·키 설정…", self.ai_settings)
@@ -172,9 +185,9 @@ class MainWindow(QMainWindow):
         self.a_vault_off = A("내 노트 폴더 연결 해제", self.disconnect_vault)
         self.a_legend = A("색 범례 보기", self.toggle_legend)
         self.a_legend.setCheckable(True)
-        self.a_help = A("사용법", self.show_help, "F1")
+        self.a_help = A("사용법", self.show_help, "F1", QStyle.SP_MessageBoxQuestion, "사용법과 단축키 (F1)")
         self.a_home = A("시작 화면", lambda: self.stack.setCurrentIndex(0))
-        self.a_challenge = A("화면 따라 만들기 도전…", self.start_challenge, "Ctrl+T", None,
+        self.a_challenge = A("도전 모드…", self.start_challenge, "Ctrl+T", QStyle.SP_DialogApplyButton,
                              "목표 화면(.ui)을 보고 Designer로 똑같이 만들어 보기 — 저장할 때마다 자동 채점")
         self.challenge = None
         self.a_rename = A("objectName 바꾸기…", self.rename_selected, "F2", None,
@@ -285,25 +298,29 @@ class MainWindow(QMainWindow):
         self.bottom.addTab(self.issue_list, "검사")
 
         left = QSplitter(Qt.Vertical)
-        self.preview_box = _titled("실시간 미리보기 · 위젯을 클릭하면 선택", self.preview)
+        self.preview_box = _titled("미리보기", self.preview)
         left.addWidget(self.preview_box)
-        left.addWidget(_titled("위젯 트리 · 흐린 이름 = Main.py에서 아직 안 씀", self.tree))
-        left.setSizes([520, 300])
+        left.addWidget(_titled("위젯 트리", self.tree))
+        left.setSizes([480, 300])
         self.editor_box = _titled("Main.py", self.editor)
         self.legend = QLabel(LEGEND)
-        self.legend.setObjectName("legend")
         self.legend.setWordWrap(True)
-        self.legend.setToolTip("코드 화면의 색 표시 뜻 (보기 메뉴에서 끄고 켤 수 있어요)")
+        self.legend.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Minimum)
+        self.legend.setObjectName("legend")
+        self.legend.setToolTip("<html>"+LEGEND_FULL+"<br>(보기 메뉴에서 끄고 켤 수 있어요)</html>")
         self.editor_box.layout().addWidget(self.legend)
         right = QSplitter(Qt.Vertical)
         right.addWidget(_titled("선택한 위젯", self.panel))
-        right.addWidget(_titled("해설 · 줄을 클릭하면 설명이 나와요", self.explain_tabs))
-        right.setSizes([380, 440])
+        right.addWidget(_titled("해설", self.explain_tabs))
+        right.setSizes([340, 480])
         top = QSplitter(Qt.Horizontal)
         top.addWidget(left)
         top.addWidget(self.editor_box)
         top.addWidget(right)
-        top.setSizes([430, 640, 430])
+        top.setSizes([270, 640, 340])
+        top.setStretchFactor(0, 2)
+        top.setStretchFactor(1, 5)
+        top.setStretchFactor(2, 3)
         main = QSplitter(Qt.Vertical)
         main.addWidget(top)
         main.addWidget(self.bottom)
@@ -331,7 +348,7 @@ class MainWindow(QMainWindow):
         self.addDockWidget(Qt.LeftDockWidgetArea, self.explorer_dock)
         want = self.settings.value("view/explorer", True) not in (False, "false")
         self.a_explorer.setChecked(want)
-        self.resizeDocks([self.explorer_dock], [int(self.settings.value("explorer/width", 250))], Qt.Horizontal)
+        self.resizeDocks([self.explorer_dock], [int(self.settings.value("explorer/width", 220))], Qt.Horizontal)
         self.stack.currentChanged.connect(self._on_page_changed)
         self._on_page_changed(0)
 
@@ -790,7 +807,8 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(f"{dirty}{name} — PyQt 학습 도우미")
         if self.py_path:
             self.editor_box.title_label.setText(f"<b>{dirty}{escape(self.py_path.name)}</b> "
-                                                f"<span style='color:#888'>{escape(str(self.py_path.parent))}</span>")
+                                                f"<span style='color:#888'>· {escape(self.py_path.parent.name)}</span>")
+            self.editor_box.title_label.setToolTip(str(self.py_path))
 
     def _status(self, msg, ms=6000):
         self.statusBar().showMessage(msg, ms)
@@ -906,9 +924,10 @@ class MainWindow(QMainWindow):
         cls = self.class_for_ui(ui_path)
         many = len(self.all_models()) > 1
         self.preview_box.title_label.setText(
-            f"<b>실시간 미리보기 · {escape(ui_path.name)}</b>"
+            f"<b>미리보기</b> <span style='color:#555'>· {escape(ui_path.name)}</span>"
             + (f" <span style='color:#555'>({escape(cls)} 클래스)</span>" if cls and many else "")
-            + (" <span style='color:#888'>· 다른 .ui는 그 클래스 안을 클릭하면 바뀌어요</span>" if many else ""))
+            + (" <span style='color:#888'>· 클래스를 클릭하면 바뀌어요</span>" if many else ""))
+        self.preview_box.title_label.setToolTip("실시간 미리보기 — 위젯을 클릭하면 선택돼요")
         idx = self.ui_combo.findData(str(ui_path))
         if idx >= 0 and idx != self.ui_combo.currentIndex():
             self.ui_combo.setCurrentIndex(idx)
