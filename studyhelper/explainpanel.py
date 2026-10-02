@@ -3,7 +3,7 @@ from html import escape
 
 from PyQt5.QtCore import Qt, QTimer, QUrl, pyqtSignal
 from PyQt5.QtGui import QDesktopServices
-from PyQt5.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
+from PyQt5.QtWidgets import (QMenu, QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
                              QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton,
                              QTextBrowser, QVBoxLayout, QWidget)
 
@@ -286,6 +286,11 @@ class AiPanel(QWidget):
         self.b_unwatch.clicked.connect(lambda: self._set_watching(False))
         self.b_unwatch.setVisible(False)
         top2.addWidget(self.b_unwatch)
+        self.b_code = QPushButton("코드 복사")
+        self.b_code.setToolTip("AI 답에 들어 있는 코드 블록을 클립보드에 복사해요")
+        self.b_code.clicked.connect(self._copy_code)
+        self.b_code.setVisible(False)
+        top2.addWidget(self.b_code)
         top2.addStretch(1)
         top.addStretch(1)
         top.addWidget(self.b_model)
@@ -356,7 +361,28 @@ class AiPanel(QWidget):
                 "<ul><li>Main.py에서 줄을 선택 → <b>Ctrl+E</b> 또는 우클릭 → AI에게 설명 듣기</li>"
                 "<li><b>전체 리뷰</b>로 잘한 점·버그·개선점 받기</li></ul>")
 
+    def code_blocks(self) -> list[str]:
+        """Fenced code blocks of the conversation so far (newest last)."""
+        return [m.group(1).strip("\n") for m in re.finditer(r"```[^\n]*\n(.*?)```", self.transcript + self.current, re.S)]
+
+    def _copy_code(self):
+        blocks = self.code_blocks()
+        if not blocks:
+            return
+        if len(blocks) == 1:
+            self._copy_own(blocks[0])
+            return
+        menu = QMenu(self)
+        for i, b in enumerate(blocks, 1):
+            first = next((ln.strip() for ln in b.split("\n") if ln.strip()), "")
+            act = menu.addAction(f"{i}. {first[:40]}")
+            act.setData(b)
+        picked = menu.exec_(self.b_code.mapToGlobal(self.b_code.rect().bottomLeft()))
+        if picked is not None:
+            self._copy_own(picked.data())
+
     def _render(self):
+        self.b_code.setVisible(bool(self.code_blocks()))
         self.view.setMarkdown(self.transcript + self.current)
         sb = self.view.verticalScrollBar()
         sb.setValue(sb.maximum())
