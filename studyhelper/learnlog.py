@@ -43,9 +43,12 @@ def load() -> dict:
 
 
 def _safe(fn):
-    """A broken log (hand-edited file, full disk …) must never break the app."""
+    """A change to the log: start from what is in the file now (another helper window may have written to it),
+    and never break the app over a broken log (hand-edited file, full disk …)."""
     @functools.wraps(fn)
     def wrapper(*args, **kwargs):
+        global _cache
+        _cache = None
         try:
             return fn(*args, **kwargs)
         except Exception:

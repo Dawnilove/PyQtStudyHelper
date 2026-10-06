@@ -70,6 +70,17 @@ class LearnLog(LogCase):
                 self.assertIsInstance(learnlog.solved_tasks(), dict)
                 self.assertIn("기록", learnview.summary_html(learnlog.load()))
 
+    def test_another_window_writing_meanwhile_is_not_lost(self):
+        import json
+        learnlog.note_run()                                         # this window has the log in memory
+        data = json.loads(learnlog.path().read_text(encoding="utf-8"))
+        data["tasks"]["greet"] = "2026-10-06 12:00"                  # …another helper window solves a task
+        learnlog.path().write_text(json.dumps(data), encoding="utf-8")
+        learnlog.note_run()
+        learnlog.reset_cache()
+        self.assertIn("greet", learnlog.solved_tasks())
+        self.assertEqual(learnlog.load()["runs"], 2)
+
     def test_clear(self):
         learnlog.note_run()
         self.assertTrue(learnlog.path().exists())
@@ -152,6 +163,8 @@ class TaskWin(LogCase):
     def test_parse_result(self):
         out = 'noise\n@@GRADE@@{"results": [], "fatal": null, "passed": 0, "total": 0}\n'
         self.assertEqual(taskwindow.parse_result(out)["total"], 0)
+        self.assertEqual(taskwindow.parse_result('loading@@GRADE@@{"total": 3}')["total"], 3)
+        self.assertIn("읽지 못했어요", taskwindow.read_result(self.root / "missing.json")["fatal"])
         self.assertIn("읽지 못했어요", taskwindow.parse_result("@@GRADE@@{broken")["fatal"])
         self.assertIn("읽지 못했어요", taskwindow.parse_result("")["fatal"])
 
@@ -236,6 +249,35 @@ class TaskWin(LogCase):
         self.assertIsNone(self.win._grading)
         self.assertIsNone(self.win._proc)
         self.assertEqual(self.win.status.text(), "")
+
+    def wait(self):
+        for _ in range(600):
+            if self.win._grading is None:
+                break
+            QTest.qWait(50)
+
+    def test_prints_of_the_student_do_not_disturb_the_result(self):
+        self.win.list.setCurrentRow(0)
+        self.win.start()
+        main = self.win.main_of(tasks.TASKS[0])
+        body = SOLUTIONS["greet"].lstrip("\n").replace(
+            "    def greet(self):\n", "    def greet(self):\n        for i in range(20000):\n"
+                                     "            print('x' * 60)\n        print('no newline', end='')\n")
+        main.write_text('print("loading", end="")\n' + main.read_text(encoding="utf-8").replace(MARK, body),
+                        encoding="utf-8")
+        self.win.grade()
+        self.wait()
+        self.assertIn("통과", self.win.status.text())
+
+    def test_python_that_cannot_start_does_not_leave_the_window_stuck(self):
+        self.win.list.setCurrentRow(0)
+        self.win.start()
+        with mock.patch.object(taskwindow.sys, "executable", str(self.root / "no_python.exe")):
+            self.win.grade()
+            self.wait()
+        self.assertIsNone(self.win._grading)
+        self.assertTrue(self.win.b_grade.isEnabled())
+        self.assertIn("실행하지 못했어요", self.win.status.text())
 
     def test_grading_runs_the_real_grader(self):
         self.win.list.setCurrentRow(0)

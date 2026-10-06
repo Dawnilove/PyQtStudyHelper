@@ -1,12 +1,14 @@
 """위젯에 하는 일: 우클릭 메뉴, 시그널 연결 코드, .ui 값 고치기·이름 바꾸기·되돌리기, 도전 모드, 코드 과제,
 학습 기록, 노트 링크."""
+import re
 from pathlib import Path
 
 from PyQt5.QtCore import Qt, QTimer, QUrl
 from PyQt5.QtGui import QDesktopServices, QTextCursor
 from PyQt5.QtWidgets import QMenu, QMessageBox
 
-from . import examples, learnlog, recovery, uihistory
+from . import examples, learnlog, recovery, uiedit, uihistory
+from .addwidgetdialog import AddWidgetDialog
 from .challenge import ChallengeWindow
 from .explainpanel import AI_LINK
 from .learnview import LearnLogDialog
@@ -49,13 +51,14 @@ class WidgetMixin:
     def edit_property(self, name, prop, value):
         if not self.ui_path:
             return
-        uihistory.snapshot(self.ui_path, f"{name}.{prop} 값 바꾸기")
+        kept = uihistory.snapshot(self.ui_path, f"{name}.{prop} 값 바꾸기")
         try:
             err = set_property(self.ui_path, name, prop, value)
         except Exception as e:
             err = f"{type(e).__name__}: {e}"
         if err:
-            uihistory.discard(self.ui_path)
+            if kept:
+                uihistory.discard(self.ui_path)
             QMessageBox.warning(self, ".ui 저장", err)
             QTimer.singleShot(0, lambda: self.select(name, "reload"))
             return
@@ -94,6 +97,19 @@ class WidgetMixin:
                 more = sm.addMenu("다른 시그널") if common else sm
                 for s in rest:
                     more.addAction(s, lambda s=s: self.insert_signal(name, s, sigs))
+        # editing the .ui: run after the menu (and the preview event that opened it) has finished
+        later = lambda fn: (lambda: QTimer.singleShot(0, fn))        # noqa: E731
+        menu.addSeparator()
+        menu.addAction("위젯 추가…", later(lambda: self.add_widget_dialog(name)))
+        mi = uiedit.move_info(self.model, name)
+        if mi is not None:
+            back, fwd, horiz = mi
+            a = menu.addAction("왼쪽으로 옮기기" if horiz else "위로 옮기기", later(lambda: self.move_selected(-1, name)))
+            a.setEnabled(back)
+            a = menu.addAction("오른쪽으로 옮기기" if horiz else "아래로 옮기기", later(lambda: self.move_selected(1, name)))
+            a.setEnabled(fwd)
+        if uiedit.why_not_delete(self.model, name) is None:
+            menu.addAction("위젯 삭제…", later(lambda: self.delete_selected(name)))
         menu.addSeparator()
         menu.addAction("예제 코드 보기", self.panel.show_examples_tab)
         url = examples.doc_url(node.cls)
@@ -116,13 +132,14 @@ class WidgetMixin:
         if not dlg.exec_():
             return
         old, new = node.name, dlg.new
-        uihistory.snapshot(self.ui_path, f"{old} → {new} 이름 바꾸기")
+        kept = uihistory.snapshot(self.ui_path, f"{old} → {new} 이름 바꾸기")
         try:
             err, n = rename_object(self.ui_path, old, new)
         except Exception as e:
             err, n = f"{type(e).__name__}: {e}", 0
         if err:
-            uihistory.discard(self.ui_path)
+            if kept:
+                uihistory.discard(self.ui_path)
             QMessageBox.warning(self, "이름 바꾸기", err)
             return
         if dlg.changes:                                    # one undo step in the editor
@@ -140,6 +157,101 @@ class WidgetMixin:
         self.load_ui(self.ui_path)
         self._status(f"{old} → {new}: .ui {n}곳, Main.py {len(dlg.changes)}줄 바꿨어요. "
                      "(Designer에서 이 파일을 열어 두었다면 Designer에서 다시 열어 주세요)", 12000)
+
+    # ------------------------------------------------------------ editing the .ui from the preview
+    def _ui_edit_ready(self) -> bool:
+        if not (self.model and self.ui_path and self.model.top is not None):
+            self._status("먼저 .ui가 연결된 파일을 열어 주세요.")
+            return False
+        return True
+
+    def _apply_ui_edit(self, label, fn, select=None) -> bool:
+        """Change the .ui (undoable with .ui 되돌리기), then reload the preview, tree and checks."""
+        kept = uihistory.snapshot(self.ui_path, label)
+        try:
+            err = fn()
+        except Exception as e:
+            err = f"{type(e).__name__}: {e}"
+        if err:
+            if kept:                               # only our own step: never an older, real one
+                uihistory.discard(self.ui_path)
+            QMessageBox.information(self, label, err)
+            return False
+        self._models.pop(self.ui_path, None)
+        self.sel = select
+        self.load_ui(self.ui_path)
+        return True
+
+    def add_widget_dialog(self, near=None):
+        if not self._ui_edit_ready():
+            return
+        near = near or self.sel
+        if not near or near not in self.model.nodes or self.model.nodes[near].kind not in ("widget", "layout"):
+            near = self.model.top.name                 # nothing (usable) selected: put it in the window
+        try:
+            places, err = uiedit.insert_places(self.ui_path, near)
+            taken = uiedit.taken_names(self.ui_path)
+        except Exception as e:
+            places, err, taken = [], f"{self.ui_path.name} 를 읽지 못했어요: {e}", set()
+        if err:
+            QMessageBox.information(self, "위젯 추가", err)
+            return
+        dlg = AddWidgetDialog(taken, places, self)
+        if not dlg.exec_():
+            return
+        cls, name, text, where = dlg.values()
+        if self._apply_ui_edit(f"{name} 추가", lambda: uiedit.add_widget(self.ui_path, near, where, cls, name, text),
+                               select=name):
+            self._status(f"{name} ({cls}) 를 {self.ui_path.name}에 추가했어요 → Main.py에서 self.{name} 로 써요. "
+                         "우클릭 → 시그널 연결 코드 넣기. (Designer에서 이 파일을 열어 두었다면 다시 열어 주세요)", 15000)
+
+    def delete_selected(self, name=None):
+        if not self._ui_edit_ready():
+            return
+        name = name or self.sel
+        if not name or name not in self.model.nodes:
+            self._status("먼저 미리보기·위젯 트리에서 지울 위젯을 선택해 주세요.")
+            return
+        why = uiedit.why_not_delete(self.model, name)
+        if why:
+            QMessageBox.information(self, "위젯 삭제", why)
+            return
+        node = self.model.nodes[name]
+        inner = []
+
+        def walk(n):
+            for c in n.children:
+                if c.kind == "widget":
+                    inner.append(c.name)
+                walk(c)
+        walk(node)
+        uses = len(re.findall(rf"\bself\.{re.escape(name)}\b", self.editor.toPlainText()))
+        msg = f"{name} ({node.cls}) 를 {self.ui_path.name}에서 지울까요?"
+        if inner:
+            msg += f"\n안에 있는 위젯 {len(inner)}개도 함께 지워져요."
+        if uses:
+            msg += f"\n\nMain.py에서 self.{name} 를 {uses}곳에서 쓰고 있어요. 지우면 그 줄은 실행할 때 에러가 나요."
+        msg += "\n\n(편집 → .ui 되돌리기 Ctrl+Alt+Z 로 되돌릴 수 있어요)"
+        if QMessageBox.question(self, "위젯 삭제", msg, QMessageBox.Yes | QMessageBox.No,
+                                QMessageBox.No) != QMessageBox.Yes:
+            return
+        up = node.parent
+        while up is not None and up.kind != "widget":
+            up = up.parent
+        if self._apply_ui_edit(f"{name} 삭제", lambda: uiedit.delete_widget(self.ui_path, name)[0],
+                               select=up.name if up is not None else None):
+            self._status(f"{name} 를 지웠어요." + (f" Main.py의 self.{name} {uses}곳은 빨간 밑줄로 보여요." if uses else "")
+                         + " (Ctrl+Alt+Z로 되돌리기)", 12000)
+
+    def move_selected(self, step, name=None):
+        if not self._ui_edit_ready():
+            return
+        name = name or self.sel
+        if not name or name not in self.model.nodes:
+            self._status("먼저 미리보기·위젯 트리에서 옮길 위젯을 선택해 주세요.")
+            return
+        if self._apply_ui_edit(f"{name} 옮기기", lambda: uiedit.move_widget(self.ui_path, name, step), select=name):
+            self._status(f"{name} 를 옮겼어요. (Ctrl+Alt+Z로 되돌리기)")
 
     def undo_ui(self):
         if not self.ui_path:

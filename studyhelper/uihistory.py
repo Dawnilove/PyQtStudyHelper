@@ -11,15 +11,16 @@ def _key(path) -> str:
     return os.path.normcase(os.path.abspath(str(path)))
 
 
-def snapshot(path, label: str) -> None:
-    """Remember the .ui as it is now, before `label` changes it."""
+def snapshot(path, label: str) -> bool:
+    """Remember the .ui as it is now, before `label` changes it. False if the file couldn't be read."""
     try:
         data = Path(path).read_bytes()
     except OSError:
-        return
+        return False
     stack = _stacks.setdefault(_key(path), [])
     stack.append((label, data))
     del stack[:-MAX_STEPS]
+    return True
 
 
 def last_label(path) -> str | None:

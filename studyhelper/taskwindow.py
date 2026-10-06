@@ -2,6 +2,7 @@
 import json
 import os
 import sys
+import tempfile
 from html import escape
 from pathlib import Path
 
@@ -41,13 +42,25 @@ def create_task_files(folder: Path, task: tasks.Task) -> Path:
 
 
 def parse_result(stdout: str) -> dict:
+    """The "@@GRADE@@{...}" line from the grader's stdout (also when something was printed in front of it)."""
     for line in reversed(stdout.splitlines()):
-        if line.startswith(MARK):
+        i = line.rfind(MARK)
+        if i >= 0:
             try:
-                return json.loads(line[len(MARK):])
+                return json.loads(line[i + len(MARK):])
             except ValueError:
                 break
     return {"fatal": "채점 결과를 읽지 못했어요.", "results": []}
+
+
+def read_result(path) -> dict:
+    try:
+        r = json.loads(Path(path).read_text(encoding="utf-8"))
+        if isinstance(r, dict):
+            return r
+    except (OSError, ValueError):
+        pass
+    return {"fatal": "채점 결과를 읽지 못했어요. (채점기가 끝까지 실행되지 못했어요)", "results": []}
 
 
 class TaskWindow(QDialog):
@@ -66,6 +79,7 @@ class TaskWindow(QDialog):
         self._timer = QTimer(self, singleShot=True, interval=TIMEOUT_MS, timeout=self._timeout)
         self._timed_out = False
         self._saving = False                 # grade() is asking the helper to save: ignore on_saved meanwhile
+        self._result_file = Path(tempfile.gettempdir()) / f"pyqtstudy_grade_{os.getpid()}_{id(self)}.json"
 
         lay = QVBoxLayout(self)
         lay.addWidget(ThemedLabel("과제를 고르고 <b>과제 시작</b>을 누르면 <code>task.ui</code>와 <code>Main.py</code>가 "
@@ -238,17 +252,37 @@ class TaskWindow(QDialog):
         env.insert("QT_QPA_PLATFORM", "offscreen")
         proc.setProcessEnvironment(env)
         proc.setWorkingDirectory(str(main.parent))
+        # the answer comes back in a file; output is thrown away (a print loop must not fill the helper's memory)
+        proc.setStandardOutputFile(QProcess.nullDevice())
+        proc.setStandardErrorFile(QProcess.nullDevice())
+        try:
+            self._result_file.unlink()
+        except OSError:
+            pass
         proc.finished.connect(lambda code, st, p=proc, tid=t.id: p is self._proc and self._finished(tid, p))
+        proc.errorOccurred.connect(lambda err, p=proc: p is self._proc and err == QProcess.FailedToStart
+                                   and self._failed_to_start())
         self._proc = proc
         self._grading = t.id
         self._timed_out = False
         self.results.clear()
         self.status.setText("채점하는 중…")
         self.b_grade.setEnabled(False)
-        proc.start(sys.executable, [str(GRADER), t.id, str(main)])
+        proc.start(sys.executable, [str(GRADER), t.id, str(main), str(self._result_file)])
         self._timer.start()
 
+    def _failed_to_start(self):
+        self._timer.stop()
+        self._proc = None
+        self._grading = None
+        self.b_grade.setEnabled(True)
+        self.status.setText(f"<span style='color:#c0392b'>채점용 파이썬을 실행하지 못했어요: {escape(sys.executable)}</span>")
+
     def _timeout(self):
+        if self._proc is None or self._proc.state() == QProcess.NotRunning:
+            self._grading = None                 # nothing running any more: don't stay at "채점하는 중…"
+            self.b_grade.setEnabled(True)
+            return
         if self._proc is not None and self._proc.state() != QProcess.NotRunning:
             self._timed_out = True
             self._proc.kill()
@@ -258,11 +292,10 @@ class TaskWindow(QDialog):
     def _finished(self, task_id, proc):
         self._timer.stop()
         self.b_grade.setEnabled(True)
-        out = bytes(proc.readAllStandardOutput()).decode("utf-8", "replace")
         if self._timed_out:
             self._grading = None
             return
-        self.show_result(task_id, parse_result(out))
+        self.show_result(task_id, read_result(self._result_file))
 
     def show_result(self, task_id, r: dict):
         self._grading = None
@@ -307,4 +340,8 @@ class TaskWindow(QDialog):
             self._kill_running()
             self._grading = None
             self.b_grade.setEnabled(True)
+        try:
+            self._result_file.unlink()
+        except OSError:
+            pass
         super().closeEvent(e)

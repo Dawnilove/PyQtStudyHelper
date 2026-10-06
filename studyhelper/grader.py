@@ -1,10 +1,12 @@
 """코드 과제 채점기. Runs in its OWN process (never inside the helper):
 
-    python grader.py <task id> <path/to/Main.py>
+    python grader.py <task id> <path/to/Main.py> [result.json]
 
 Imports the student's Main.py (its `if __name__ == "__main__":` part does not run), makes the window,
-plays the task's steps (type text, click, choose …) on an offscreen screen and prints one JSON line:
+plays the task's steps (type text, click, choose …) on an offscreen screen and reports one JSON object
 {"results": [{"ok", "label", "detail"}], "fatal": "...", "passed": n, "total": n}
+in result.json (the helper reads this) and as a "@@GRADE@@{...}" line on stdout. The student's own prints go
+nowhere, so an endless print loop can't flood the helper or break the result line.
 Message boxes and dialogs are recorded instead of shown, so nothing waits for a click.
 """
 import importlib.util
@@ -226,15 +228,24 @@ def grade(task_id: str, main_path: str) -> dict:
 
 
 def main():
-    if len(sys.argv) != 3 or sys.argv[1] not in BY_ID:
-        print(json.dumps({"fatal": "사용법: grader.py <과제 id> <Main.py>", "results": []}))
-        return
-    try:
-        result = grade(sys.argv[1], sys.argv[2])
-    except BaseException as e:                  # never leave the helper without an answer
-        result = {"fatal": f"채점기 에러: {type(e).__name__}: {e}", "results": []}
-    sys.stdout.write("@@GRADE@@" + json.dumps(result, ensure_ascii=False) + "\n")
-    sys.stdout.flush()
+    out = sys.__stdout__
+    result_file = sys.argv[3] if len(sys.argv) == 4 else None
+    if len(sys.argv) not in (3, 4) or sys.argv[1] not in BY_ID:
+        result = {"fatal": "사용법: grader.py <과제 id> <Main.py> [result.json]", "results": []}
+    else:
+        sys.stdout = sys.stderr = open(os.devnull, "w", encoding="utf-8")    # the student's prints
+        try:
+            result = grade(sys.argv[1], sys.argv[2])
+        except BaseException as e:              # never leave the helper without an answer
+            result = {"fatal": f"채점기 에러: {type(e).__name__}: {e}", "results": []}
+    text = json.dumps(result, ensure_ascii=False)
+    if result_file:
+        try:
+            Path(result_file).write_text(text, encoding="utf-8")
+        except OSError:
+            pass
+    out.write("\n@@GRADE@@" + text + "\n")       # its own line even after a print(..., end="")
+    out.flush()
     os._exit(0)                                 # skip Qt teardown of the student's window
 
 

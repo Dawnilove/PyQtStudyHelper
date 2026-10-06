@@ -151,6 +151,16 @@ class MainWindow(ViewMixin, TabsMixin, RunMixin, WelcomeMixin, WidgetMixin, AiMi
         self.a_rename = A("objectName 바꾸기…", self.rename_selected, "F2", None,
                           "선택한 위젯의 이름을 .ui와 Main.py에서 한꺼번에 바꾸기 (F2)")
 
+        # .ui editing from the preview: no shortcuts (window-wide keys would change the .ui while typing code)
+        self.a_add_widget = A("위젯 추가…", lambda: self.add_widget_dialog(), None, None,
+                              "선택한 위젯 옆(또는 안)에 버튼·라벨·입력칸 같은 위젯을 넣어요 — .ui에 바로 저장")
+        self.a_move_back = A("앞으로 옮기기 (위·왼쪽)", lambda: self.move_selected(-1), None, None,
+                             "선택한 위젯을 같은 레이아웃 안에서 한 칸 위(가로면 왼쪽)로")
+        self.a_move_fwd = A("뒤로 옮기기 (아래·오른쪽)", lambda: self.move_selected(1), None, None,
+                            "선택한 위젯을 같은 레이아웃 안에서 한 칸 아래(가로면 오른쪽)로")
+        self.a_delete_widget = A("위젯 삭제…", lambda: self.delete_selected(), None, None,
+                                 "선택한 위젯을 .ui에서 지워요 (.ui 되돌리기로 되돌릴 수 있어요)")
+
         mb = self.menuBar()
         m = mb.addMenu("파일(&F)")
         m.addAction(self.a_open)
@@ -171,6 +181,9 @@ class MainWindow(ViewMixin, TabsMixin, RunMixin, WelcomeMixin, WidgetMixin, AiMi
             m.addAction(a)
         m = mb.addMenu("위젯(&W)")
         m.addAction(self.a_rename)
+        m.addSeparator()
+        for a in (self.a_add_widget, self.a_move_back, self.a_move_fwd, self.a_delete_widget):
+            m.addAction(a)
         m = mb.addMenu("연습(&P)")
         m.addAction(self.a_challenge)
         m.addAction(self.a_tasks)
