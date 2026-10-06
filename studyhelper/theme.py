@@ -56,7 +56,7 @@ DARK = {
 
 T = dict(LIGHT)          # the colours in use right now
 dark = False
-_chromed = []            # weakrefs of widgets that carry chrome_stylesheet()
+_chromed = {}             # id -> weakref of the widgets that carry chrome_stylesheet()
 
 
 def set_dark(on: bool):
@@ -278,7 +278,11 @@ def chrome(*widgets):
         if w is None:
             continue
         w.setStyleSheet(sheet)
-        _chromed.append(weakref.ref(w))
+        key = id(w)
+        _chromed[key] = weakref.ref(w)
+        # Qt-created widgets (menuBar(), statusBar()) leave a dangling Python wrapper when Qt deletes them,
+        # so forget a widget the moment Qt destroys it instead of finding out later.
+        w.destroyed.connect(lambda _=None, k=key: _chromed.pop(k, None))
 
 
 def apply(app, on: bool):
@@ -286,13 +290,12 @@ def apply(app, on: bool):
     app.setPalette(palette(on))
     app.setStyleSheet(app_stylesheet())
     sheet = chrome_stylesheet()
-    alive = []
-    for ref in _chromed:
+    for key, ref in list(_chromed.items()):
         w = ref()
+        if w is None:
+            _chromed.pop(key, None)
+            continue
         try:
-            if w is not None:
-                w.setStyleSheet(sheet)
-                alive.append(ref)
+            w.setStyleSheet(sheet)
         except RuntimeError:                     # the C++ widget is gone
-            pass
-    _chromed[:] = alive
+            _chromed.pop(key, None)

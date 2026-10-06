@@ -56,6 +56,7 @@ def main():
         w.open_path(sys.argv[1])
     else:
         w.restore_session()
+    w.check_updates_later()
     sys.exit(app.exec_())
 
 

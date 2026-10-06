@@ -77,6 +77,7 @@ class _Overlay(QWidget):
 class PreviewPane(QScrollArea):
     """Shows the real widgets from uic.loadUi(). Clicks select instead of acting."""
     widgetClicked = pyqtSignal(str)
+    widgetMenuRequested = pyqtSignal(str, QPoint)       # right-click on a widget: name, global position
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -178,6 +179,14 @@ class PreviewPane(QScrollArea):
             self.ensureVisible(c.x(), c.y(), self.overlay.rect_.width() // 2 + 20,
                                self.overlay.rect_.height() // 2 + 30)
 
+    def _name_at(self, obj):
+        o = obj
+        while o is not None and o is not self.host:
+            if o.objectName() in self.names:
+                return o.objectName()
+            o = o.parent()
+        return None
+
     def eventFilter(self, obj, ev):
         t = ev.type()
         if obj is self.host:
@@ -185,6 +194,11 @@ class PreviewPane(QScrollArea):
                 self.select(self._sel)
             return False
         if t in BLOCKED:
+            if t == QEvent.ContextMenu:
+                name = self._name_at(obj)
+                if name:
+                    self.widgetMenuRequested.emit(name, ev.globalPos())
+                return True
             if t == QEvent.MouseButtonPress:
                 o = obj
                 while o is not None and o is not self.host:

@@ -14,6 +14,9 @@ from .theme import ThemedBrowser, ThemedLabel, chrome
 
 
 # ------------------------------------------------------------- line explainer
+AI_LINK = "ai:line"          # link at the bottom of a line explanation -> ask the AI about this line
+
+
 class LineExplainView(ThemedBrowser):
     def __init__(self):
         super().__init__()
@@ -41,7 +44,7 @@ class LineExplainView(ThemedBrowser):
             h.append(f"<p style='color:#0b6bcb;margin:2px 0 6px 0'>📍 {escape(ctx)}</p>")
         if not items:
             h.append("<p style='color:#888'>이 줄에 대한 준비된 해설이 없어요. "
-                     "<b>AI 해설</b> 탭에서 물어볼 수 있어요 (줄을 선택하고 Ctrl+E).</p>")
+                     "아래 링크를 누르면 AI에게 물어볼 수 있어요.</p>")
         for n in items:
             h.append(f"<p style='margin:8px 0 2px 0'><b>{escape(n.title)}</b></p>")
             h.append(f"<p style='margin:0 0 0 10px'>• {escape(n.what)}</p>")
@@ -56,6 +59,8 @@ class LineExplainView(ThemedBrowser):
                 links.append(f"<a href='{notes.obsidian_url(self.vault, hit)}'>{escape(notes.label(self.vault, hit))}</a>")
         if links:
             h.append("<p style='margin:10px 0 0 0'>📘 내 노트: " + " · ".join(links) + "</p>")
+        h.append(f"<p style='margin:12px 0 0 0'><a href='{AI_LINK}'>🤖 이 줄을 AI에게 더 자세히 물어보기</a>"
+                 " <span style='color:#888'>(Ctrl+E)</span></p>")
         h.append("</div>")
         self.setHtml("".join(h))
 

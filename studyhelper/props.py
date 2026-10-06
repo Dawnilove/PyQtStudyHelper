@@ -1,13 +1,13 @@
 """Right-side panel: properties, signals, generated code, raw .ui XML of the selection."""
 from html import escape
 
-from PyQt5.QtCore import QMetaMethod, QObject, Qt, pyqtSignal
-from PyQt5.QtGui import QColor, QFont
-from PyQt5.QtWidgets import (QHeaderView, QLabel, QListWidget, QListWidgetItem, QPlainTextEdit,
+from PyQt5.QtCore import QMetaMethod, QObject, Qt, QUrl, pyqtSignal
+from PyQt5.QtGui import QColor, QDesktopServices, QFont
+from PyQt5.QtWidgets import (QApplication, QHeaderView, QLabel, QListWidget, QListWidgetItem, QPlainTextEdit,
                              QPushButton, QTabWidget, QTableWidget, QTableWidgetItem, QTextBrowser,
                              QVBoxLayout, QWidget)
 
-from . import codeview, notes, theme
+from . import codeview, examples, notes, theme
 from .ui_model import editable_value
 from .theme import ThemedBrowser, ThemedLabel
 
@@ -87,6 +87,13 @@ class PropertyPanel(QWidget):
         sl.addWidget(self.b_insert)
         self.tabs.addTab(sp, "시그널")
 
+        # 예제 tab: everyday code for this kind of widget, ready to copy, + the Qt documentation page
+        self.examples = ThemedBrowser()
+        self.examples.setOpenLinks(False)
+        self.examples.anchorClicked.connect(self._on_example_link)
+        self._snippets = []
+        self.tabs.addTab(self.examples, "예제")
+
         self.code = ThemedBrowser()
         self.tabs.addTab(self.code, "코드로 보기")
 
@@ -103,6 +110,7 @@ class PropertyPanel(QWidget):
         self.vault = None
         self._node = None
         self._all_sigs = []
+        self._is_top = False
         self._filling = False
 
         self.clear()
@@ -114,6 +122,9 @@ class PropertyPanel(QWidget):
         self.uses.clear()
         self.signals.clear()
         self.code.clear()
+        if hasattr(self, "examples"):
+            self.examples.clear()
+            self._snippets = []
         self.xml.clear()
         if hasattr(self, "b_rename"):
             self.b_rename.setVisible(False)
@@ -128,6 +139,39 @@ class PropertyPanel(QWidget):
             self.b_insert.setText("먼저 위 목록에서 시그널을 하나 고르세요")
             return
         self.signalInsertRequested.emit(self._node.name, sig, self._all_sigs)
+
+    def show_examples_tab(self):
+        self.tabs.setCurrentWidget(self.examples)
+
+    def _on_example_link(self, url):
+        s = url.toString()
+        if s.startswith("copy:"):
+            i = int(s[5:])
+            if 0 <= i < len(self._snippets):
+                QApplication.clipboard().setText(self._snippets[i])
+                self._fill_examples(copied=i)
+        elif s.startswith("http"):
+            QDesktopServices.openUrl(QUrl(s))
+
+    def _fill_examples(self, copied=None):
+        node = self._node
+        if node is None:
+            return
+        is_top = self._is_top
+        items = examples.examples_for(node.cls, node.name, is_top)
+        self._snippets = [code for _, code in items]
+        h = ["<div style='font-size:10pt'>"]
+        url = examples.doc_url(node.cls)
+        if url:
+            h.append(f"<p><a href='{url}'>{escape(node.cls)} 공식 문서 열기 (Qt 5, 영어)</a></p>")
+        for i, (title, code) in enumerate(items):
+            done = " <span style='color:#2b8a3e'>✓ 복사했어요</span>" if i == copied else ""
+            h.append(f"<p style='margin:10px 0 2px 0'><b>{escape(title)}</b> &nbsp;"
+                     f"<a href='copy:{i}'>복사</a>{done}</p>")
+            h.append(f"<pre style='background:{theme.T['pre_bg']};margin:0;padding:4px;white-space:pre-wrap'>"
+                     f"{escape(code)}</pre>")
+        h.append("<p style='color:#888'>복사한 뒤 Main.py에 붙여넣고 이름·내용을 바꿔 쓰세요.</p></div>")
+        self.examples.setHtml("".join(h))
 
     def _on_item_changed(self, item):
         if self._filling or self._node is None or item.column() != 1:
@@ -197,6 +241,8 @@ class PropertyPanel(QWidget):
                 self.signals.insertItem(0, tip)
 
         is_top = model.top is not None and node is model.top
+        self._is_top = is_top
+        self._fill_examples()
         rows = codeview.lines_for(generated_code, node.name, is_top) if generated_code else []
         html = ["<div style='font-size:10pt'>",
                 "<p style='color:#666'>pyuic가 gui.ui를 파이썬으로 바꿀 때 이 위젯에 대해 만드는 줄이에요.</p>"]

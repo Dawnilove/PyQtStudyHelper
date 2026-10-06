@@ -194,9 +194,10 @@ class SessionTests(WindowCase):
         self.assertEqual(w2.py_path.name, "a.py")
 
     def test_missing_files_are_skipped_and_nothing_means_start_screen(self):
-        self.w.open_path(self.b)
-        self.w.close()
-        os.remove(self.b)
+        # a file deleted while the app was closed (not deleted under a running window's file watcher)
+        gone = str(self.root / "gone.py")
+        self.w.settings.setValue("session/tabs", [gone])
+        self.w.settings.setValue("session/current", gone)
         w2 = self.second_window()
         self.assertFalse(w2.restore_session())
         self.assertEqual(w2.stack.currentIndex(), 0)
@@ -248,6 +249,28 @@ class SaveConversationTests(WindowCase):
     def test_default_folder_is_the_open_files_folder(self):
         self.w.open_path(self.a)
         self.assertEqual(self.w.ai_panel.save_dir, str(Path(self.a).parent))
+
+
+class VanishedFileTests(WindowCase):
+    """The open Main.py is deleted / renamed outside while the app runs: no crash, code kept, Ctrl+S recreates it."""
+
+    def test_open_file_disappears(self):
+        self.w.open_path(self.a)
+        os.remove(self.a)
+        self.w.run_check()                                   # used to raise FileNotFoundError -> Qt abort
+        for _ in range(10):                                  # the watcher's retries, without waiting 3 s
+            self.w._on_file_changed(self.a)
+            self.w._reload_pending()
+        self.assertTrue(self.w.editor.document().isModified())
+        self.assertEqual(self.w.editor.toPlainText(), "print('A')\n")
+        self.assertTrue(self.w.save_py())
+        self.assertEqual(Path(self.a).read_text(encoding="utf-8").strip(), "print('A')")
+
+    def test_opening_a_missing_file_says_so(self):
+        with mock.patch.object(QMessageBox, "warning") as warn:
+            self.assertFalse(self.w.open_path(str(self.root / "nope.py")))
+        warn.assert_called_once()
+        self.assertEqual(self.w.stack.currentIndex(), 0)
 
 
 if __name__ == "__main__":

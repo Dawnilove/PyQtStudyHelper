@@ -50,7 +50,10 @@ def ui_candidates(py_path, include_folder=True) -> list[Path]:
     """
     py = Path(py_path).resolve()
     folder = py.parent
-    src = read_text(py)[0]
+    try:
+        src = read_text(py)[0]
+    except OSError:                  # deleted / renamed while open: only the folder's .ui files are left
+        src = ""
     found: list[Path] = []
 
     def add(rel):
@@ -136,7 +139,10 @@ def import_mismatch(py_path) -> tuple[int, str] | None:
     e.g. GUI_FILE_NAME = 'gui_sol' (converts gui_sol.ui) but `from gui import Ui_MainWindow`.
     """
     py = Path(py_path).resolve()
-    src = read_text(py)[0]
+    try:
+        src = read_text(py)[0]
+    except OSError:
+        return None
     try:
         tree = ast.parse(src)
     except SyntaxError:

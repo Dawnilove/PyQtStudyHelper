@@ -23,13 +23,14 @@ from .explorer import ExplorerPanel
 from .renamedialog import RenameDialog
 from .signaldialog import SignalInsertDialog
 from .ui_model import rename_object, set_property
-from .explainpanel import AiPanel, AiSettingsDialog, LineExplainView
-from . import icons, recovery, theme
+from .explainpanel import AI_LINK, AiPanel, AiSettingsDialog, LineExplainView
+from . import examples, helpmenu, icons, recovery, theme, uihistory
+from .settingsdialog import SettingsDialog
 from .findbar import FindBar
 from .editor import CodeEditor
 from .locate import class_ui_ranges, import_mismatch, main_py_in, py_for_ui, read_text, ui_candidates
 from .preview import PreviewPane
-from .props import PropertyPanel
+from .props import PropertyPanel, signals_of
 from .studyfolders import (MainFilesScanner, StudyFoldersDialog, existing_folders, load_folders, main_label,
                            pick_file, save_folders, start_dir)
 from .ui_model import UiModel
@@ -103,6 +104,15 @@ LEGEND = " &nbsp; ".join(f"<span style='white-space:nowrap'>{x}</span>" for x in
 ])
 
 
+# signals shown first in a widget's right-click menu (the ones lessons use most)
+COMMON_SIGNALS = ["clicked()", "clicked(bool)", "toggled(bool)", "textChanged(QString)", "textChanged()",
+                  "returnPressed()", "editingFinished()", "valueChanged(int)", "valueChanged(double)",
+                  "currentIndexChanged(int)", "currentTextChanged(QString)", "stateChanged(int)",
+                  "itemClicked(QListWidgetItem*)", "itemDoubleClicked(QListWidgetItem*)", "currentRowChanged(int)",
+                  "cellClicked(int,int)", "cellDoubleClicked(int,int)", "dateChanged(QDate)",
+                  "selectionChanged()", "currentChanged(int)", "triggered(bool)", "triggered()",
+                  "accepted()", "rejected()", "sliderMoved(int)"]
+
 # QWidget containers that are normal to leave unused in Main.py
 _CONTAINERS = {"QWidget", "QMenuBar", "QStatusBar", "QToolBar", "QFrame", "QMenu"}
 
@@ -157,12 +167,86 @@ class MainWindow(QMainWindow):
         self.watcher = QFileSystemWatcher(self)
         self.watcher.fileChanged.connect(self._on_file_changed)
         self._pending = set()
+        self._missing = {}               # watched file -> how many times it was found missing
         self._reload_timer = QTimer(self, singleShot=True, interval=300, timeout=self._reload_pending)
         self._check_timer = QTimer(self, singleShot=True, interval=400, timeout=self.run_check)
         self.editor.textChanged.connect(self._check_timer.start)
         self._update_title()
-        self._backup_timer = QTimer(self, interval=20000, timeout=self._backup_now)
-        self._backup_timer.start()
+        self._backup_timer = QTimer(self, timeout=self._backup_now)
+        self._apply_backup_interval()
+
+    def _apply_backup_interval(self):
+        sec = int(self.settings.value("backup/interval", 20))
+        if sec > 0:
+            self._backup_timer.start(sec * 1000)
+        else:
+            self._backup_timer.stop()
+
+    # ------------------------------------------------------------ settings / help
+    def open_settings(self):
+        values = {
+            "dark": self._dark, "zoom": self._font_delta, "legend": self.a_legend.isChecked(),
+            "explorer": self.a_explorer.isChecked(), "tips": not self._tips_hidden(),
+            "restore": self.settings.value("session/restore", True) not in (False, "false"),
+            "update": self.settings.value("update/check", True) not in (False, "false"),
+            "backup": int(self.settings.value("backup/interval", 20)),
+        }
+        actions = {"AI 모델·키 설정…": self.ai_settings, "무료 AI 켜기…": self.free_ai,
+                   "내 노트 폴더 연결…": self.choose_vault, "학습 폴더 관리…": self.manage_study_folders}
+        dlg = SettingsDialog(values, actions, self)
+        if dlg.exec_():
+            self.apply_settings(dlg.values())
+
+    def apply_settings(self, v: dict):
+        if v["dark"] != self._dark:
+            self.a_dark.setChecked(v["dark"])
+            self.toggle_dark()
+        if v["zoom"] != self._font_delta:
+            self._font_delta = v["zoom"]
+            self.zoom(None)
+        if v["legend"] != self.a_legend.isChecked():
+            self.a_legend.setChecked(v["legend"])
+            self.toggle_legend()
+        if v["explorer"] != self.a_explorer.isChecked():
+            self.a_explorer.setChecked(v["explorer"])
+            self.toggle_explorer()
+        self.settings.setValue("tips/hidden", not v["tips"])
+        self.tips.setVisible(v["tips"])
+        self.settings.setValue("session/restore", v["restore"])
+        self.settings.setValue("update/check", v["update"])
+        self.settings.setValue("backup/interval", v["backup"])
+        self._apply_backup_interval()
+        self._status("설정을 적용했어요.")
+
+    def _tips_hidden(self) -> bool:
+        return self.settings.value("tips/hidden", False) in (True, "true")
+
+    def show_shortcuts(self):
+        helpmenu.ShortcutsDialog(self.menuBar(), self).exec_()
+
+    def show_error_log(self):
+        helpmenu.ErrorLogDialog(self).exec_()
+
+    def check_updates_later(self):
+        """At start-up (from run.py): look for a newer version on GitHub, at most once a day, in the background."""
+        if self.settings.value("update/check", True) in (False, "false"):
+            return
+        last = float(self.settings.value("update/last", 0) or 0)
+        if time.time() - last < 24 * 3600:
+            newer = self.settings.value("update/newer", "")
+            if newer and helpmenu.is_newer(newer):
+                self._show_update(newer)
+            return
+        self._updater = helpmenu.UpdateChecker(self)
+        self._updater.newer.connect(self._show_update)
+        self._updater.finished.connect(lambda: self.settings.setValue("update/last", time.time()))
+        QTimer.singleShot(4000, self._updater.start)
+
+    def _show_update(self, version):
+        self.settings.setValue("update/newer", version)
+        self.a_update.setText(f"새 버전 {version} 받기 (GitHub)")
+        self.a_update.setVisible(True)
+        self._status(f"새 버전 {version} 이 나왔어요 — 도움말 메뉴 → 새 버전 받기", 20000)
 
     def _build_tips(self) -> QWidget:
         """처음 쓰는 사람을 위한 한 줄 안내 (닫으면 다시 안 나와요)."""
@@ -179,7 +263,7 @@ class MainWindow(QMainWindow):
         b.clicked.connect(lambda: (bar.setVisible(False), self.settings.setValue("tips/hidden", True)))
         lay.addWidget(lab, 1)
         lay.addWidget(b)
-        bar.setVisible(self.settings.value("tips/hidden", False) not in (True, "true"))
+        bar.setVisible(not self._tips_hidden())
         return bar
 
     def _backup_now(self):
@@ -223,12 +307,21 @@ class MainWindow(QMainWindow):
         self.a_legend = A("색 범례 보기", self.toggle_legend)
         self.a_legend.setCheckable(True)
         self.a_help = A("사용법", self.show_help, "F1", QStyle.SP_MessageBoxQuestion, "사용법과 단축키 (F1)")
+        self.a_shortcuts = A("단축키 목록", self.show_shortcuts, "Ctrl+/")
+        self.a_errlog = A("오류 기록 보기…", self.show_error_log, None, None,
+                          "프로그램이 멈췄을 때의 기록. 친구에게 물어볼 때 복사해서 보내요")
+        self.a_settings = A("설정…", self.open_settings, "Ctrl+,", None, "테마·글자 크기·백업·시작 설정을 한곳에서")
+        self.a_update = A("새 버전 받기", lambda: QDesktopServices.openUrl(QUrl(helpmenu.REPO_URL)))
+        self.a_update.setVisible(False)
         self.a_home = A("시작 화면", lambda: self.stack.setCurrentIndex(0))
         self.a_challenge = A("도전 모드…", self.start_challenge, "Ctrl+T", QStyle.SP_DialogApplyButton,
                              "목표 화면(.ui)을 보고 Designer로 똑같이 만들어 보기 — 저장할 때마다 자동 채점")
         self.challenge = None
         self.a_find = A("찾기…", lambda: self.findbar.open_bar(False), QKeySequence.Find, None, "코드에서 찾기 (Ctrl+F)")
         self.a_replace = A("바꾸기…", lambda: self.findbar.open_bar(True), "Ctrl+H", None, "찾아서 바꾸기 (Ctrl+H)")
+        self.a_undo_ui = A(".ui 되돌리기", self.undo_ui, "Ctrl+Alt+Z", None,
+                           "도우미에서 바꾼 .ui(속성 값, 이름 바꾸기, 위젯 추가·삭제)를 바로 전으로 되돌려요")
+        self.a_undo_ui.setEnabled(False)
         self.a_rename = A("objectName 바꾸기…", self.rename_selected, "F2", None,
                           "선택한 위젯의 이름을 .ui와 Main.py에서 한꺼번에 바꾸기 (F2)")
 
@@ -240,10 +333,13 @@ class MainWindow(QMainWindow):
         m.addAction(self.a_save)
         m.addSeparator()
         m.addAction(self.a_home)
+        m.addAction(self.a_settings)
         m.addAction(A("끝내기", self.close, "Ctrl+Q"))
         m = mb.addMenu("편집(&E)")
         m.addAction(self.a_find)
         m.addAction(self.a_replace)
+        m.addSeparator()
+        m.addAction(self.a_undo_ui)
         m = mb.addMenu("실행(&R)")
         for a in (self.a_run, self.a_stop, self.a_designer):
             m.addAction(a)
@@ -269,6 +365,10 @@ class MainWindow(QMainWindow):
         m.addAction(self.a_vault_off)
         m = mb.addMenu("도움말(&H)")
         m.addAction(self.a_help)
+        m.addAction(self.a_shortcuts)
+        m.addSeparator()
+        m.addAction(self.a_errlog)
+        m.addAction(self.a_update)
 
         tb = self.addToolBar("main")
         self.toolbar = tb
@@ -300,6 +400,7 @@ class MainWindow(QMainWindow):
 
         self.preview = PreviewPane()
         self.preview.widgetClicked.connect(lambda n: self.select(n, "preview"))
+        self.preview.widgetMenuRequested.connect(self._widget_menu)
         self.tree = QTreeWidget()
         self.tree.setHeaderLabels(["objectName", "클래스"])
         self.tree.setColumnWidth(0, 180)
@@ -326,7 +427,7 @@ class MainWindow(QMainWindow):
         self.panel.renameRequested.connect(self.rename_selected)
 
         self.line_view = LineExplainView()
-        self.line_view.anchorClicked.connect(lambda url: self.open_note(url.toString()))
+        self.line_view.anchorClicked.connect(self._on_line_link)
         self.ai_panel = AiPanel()
         self.ai_panel.settingsRequested.connect(self.ai_settings)
         self.ai_panel.freeAiRequested.connect(self.free_ai)
@@ -764,11 +865,13 @@ class MainWindow(QMainWindow):
     def edit_property(self, name, prop, value):
         if not self.ui_path:
             return
+        uihistory.snapshot(self.ui_path, f"{name}.{prop} 값 바꾸기")
         try:
             err = set_property(self.ui_path, name, prop, value)
         except Exception as e:
             err = f"{type(e).__name__}: {e}"
         if err:
+            uihistory.discard(self.ui_path)
             QMessageBox.warning(self, ".ui 저장", err)
             QTimer.singleShot(0, lambda: self.select(name, "reload"))
             return
@@ -876,10 +979,38 @@ class MainWindow(QMainWindow):
         name = it.data(0, Qt.UserRole) if it else None
         if not name:
             return
-        self.select(name, "tree")
-        menu = QMenu(self.tree)
+        self._widget_menu(name, self.tree.viewport().mapToGlobal(pos))
+
+    def _widget_menu(self, name, global_pos):
+        """Right-click on a widget (tree or preview): rename, connect a signal, examples, Qt docs."""
+        if not self.model or name not in self.model.nodes:
+            return
+        if self.sel != name:
+            self.select(name, "tree")
+        node = self.model.nodes[name]
+        menu = QMenu(self)
         menu.addAction(self.a_rename)
-        menu.exec_(self.tree.viewport().mapToGlobal(pos))
+        obj = self.preview.find(name)
+        sigs = [s for _, s in signals_of(obj)] if obj is not None else []
+        if sigs and self.py_path:
+            sm = menu.addMenu("시그널 연결 코드 넣기")
+            common = []
+            for want in COMMON_SIGNALS:
+                if want in sigs and want.split("(")[0] not in [c.split("(")[0] for c in common]:
+                    common.append(want)
+            for s in common:
+                sm.addAction(s, lambda s=s: self.insert_signal(name, s, sigs))
+            rest = [s for s in sigs if s not in common]
+            if rest:
+                more = sm.addMenu("다른 시그널") if common else sm
+                for s in rest:
+                    more.addAction(s, lambda s=s: self.insert_signal(name, s, sigs))
+        menu.addSeparator()
+        menu.addAction("예제 코드 보기", self.panel.show_examples_tab)
+        url = examples.doc_url(node.cls)
+        if url:
+            menu.addAction(f"Qt 문서 열기 ({node.cls})", lambda: QDesktopServices.openUrl(QUrl(url)))
+        menu.exec_(global_pos)
 
     def rename_selected(self):
         if not (self.model and self.ui_path and self.sel in self.model.nodes):
@@ -896,11 +1027,13 @@ class MainWindow(QMainWindow):
         if not dlg.exec_():
             return
         old, new = node.name, dlg.new
+        uihistory.snapshot(self.ui_path, f"{old} → {new} 이름 바꾸기")
         try:
             err, n = rename_object(self.ui_path, old, new)
         except Exception as e:
             err, n = f"{type(e).__name__}: {e}", 0
         if err:
+            uihistory.discard(self.ui_path)
             QMessageBox.warning(self, "이름 바꾸기", err)
             return
         if dlg.changes:                                    # one undo step in the editor
@@ -918,6 +1051,29 @@ class MainWindow(QMainWindow):
         self.load_ui(self.ui_path)
         self._status(f"{old} → {new}: .ui {n}곳, Main.py {len(dlg.changes)}줄 바꿨어요. "
                      "(Designer에서 이 파일을 열어 두었다면 Designer에서 다시 열어 주세요)", 12000)
+
+    def undo_ui(self):
+        if not self.ui_path:
+            return
+        label = uihistory.undo(self.ui_path)
+        if label is None:
+            self._status("되돌릴 .ui 수정이 없어요. (Designer에서 바꾼 것은 Designer에서 되돌려 주세요)")
+            return
+        self._models.pop(self.ui_path, None)
+        self.load_ui(self.ui_path)
+        more = " — Main.py에서 바뀐 이름은 편집기에서 Ctrl+Z로 되돌리세요" if "이름 바꾸기" in label else ""
+        self._status(f".ui 되돌림: {label}{more}", 12000)
+
+    def _update_undo_ui(self):
+        label = uihistory.last_label(self.ui_path) if self.ui_path else None
+        self.a_undo_ui.setEnabled(label is not None)
+        self.a_undo_ui.setText(f".ui 되돌리기: {label}" if label else ".ui 되돌리기")
+
+    def _on_line_link(self, url):
+        if url.toString() == AI_LINK:
+            self.ai_explain()
+        else:
+            self.open_note(url.toString())
 
     def open_note(self, url):
         if url == "connect":
@@ -981,11 +1137,16 @@ class MainWindow(QMainWindow):
                                                       "찾지 못했어요. 파이썬 파일을 직접 골라 주세요.")
                 return False
             p = py.resolve()
+        try:
+            text, encoding, crlf = read_text(p)
+        except OSError as e:
+            QMessageBox.warning(self, "열기", f"{p.name} 를 열지 못했어요.\n{e.strerror or e}")
+            return False
         self._stash_current()
 
         self.py_path = p
         self._mismatch = import_mismatch(p)
-        text, self.encoding, self.crlf = read_text(p)
+        self.encoding, self.crlf = encoding, crlf
         self.editor.setPlainText(text)
         self.editor.document().setModified(False)
         kept = self._stash.pop(str(p), None)
@@ -1032,6 +1193,8 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------ file tabs
     def restore_session(self) -> bool:
         """Re-open the tabs that were open when the app was closed (files that still exist)."""
+        if self.settings.value("session/restore", True) in (False, "false"):
+            return False
         tabs = self.settings.value("session/tabs", []) or []
         if isinstance(tabs, str):              # QSettings gives a plain str for a one-item list
             tabs = [tabs]
@@ -1167,6 +1330,7 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------ .ui model
     def load_ui(self, ui_path: Path | None):
         self.ui_path = ui_path
+        self._update_undo_ui()
         self.model, self.generated = None, ""
         self.tree.clear()
         self.panel.clear()
@@ -1344,12 +1508,23 @@ class MainWindow(QMainWindow):
                     continue
                 self.load_ui(p)
                 self._status(f"{p.name} 변경 감지 → 다시 불러왔어요 ({_now()})")
-            elif p == self.py_path and not p.exists():   # editors that save by replace
-                self._pending.add(p)
-                self._reload_timer.start()
+            elif p == self.py_path and not p.exists():   # editors that save by replace: wait a little
+                tries = self._missing.get(p, 0) + 1
+                self._missing[p] = tries
+                if tries < 10:
+                    self._pending.add(p)
+                    self._reload_timer.start()
+                elif tries == 10:                        # really gone (deleted / renamed outside)
+                    self.editor.document().setModified(True)
+                    self._status(f"{p.name} 파일이 폴더에서 사라졌어요 (지워졌거나 이름이 바뀜). 코드는 그대로 있어요 — "
+                                 "Ctrl+S로 저장하면 다시 만들어져요.", 30000)
                 continue
             elif p == self.py_path:
-                text, *_ = read_text(p)
+                self._missing.pop(p, None)
+                try:
+                    text, *_ = read_text(p)
+                except OSError:
+                    continue
                 if text == self.editor.toPlainText():
                     pass
                 elif self.editor.document().isModified():
@@ -1377,6 +1552,7 @@ class MainWindow(QMainWindow):
             return False
         self.editor.document().setModified(False)
         recovery.clear(self.py_path)
+        self._missing.pop(self.py_path, None)
         self._mismatch = import_mismatch(self.py_path)
         self.run_check()
         self._status(f"{self.py_path.name} 저장함")
@@ -1626,6 +1802,9 @@ class MainWindow(QMainWindow):
             self.settings.setValue("explorer/width", self.explorer_dock.width())
         for k, s in self.splitters.items():
             self.settings.setValue(f"split2/{k}", s.saveState())
+        u = getattr(self, "_updater", None)
+        if u is not None and u.isRunning():      # a QThread must not be destroyed while it runs
+            u.wait(6000)
         e.accept()
 
 
