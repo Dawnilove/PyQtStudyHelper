@@ -3,9 +3,9 @@ from html import escape
 
 from PyQt5.QtCore import Qt, QTimer, QUrl, pyqtSignal
 from PyQt5.QtGui import QDesktopServices
-from PyQt5.QtWidgets import (QMenu, QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog,
-                             QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton,
-                             QTextBrowser, QVBoxLayout, QWidget)
+from PyQt5.QtWidgets import (QMenu, QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
+                             QFileDialog, QHBoxLayout, QLineEdit, QMessageBox, QPushButton, QVBoxLayout,
+                             QWidget)
 
 import re
 

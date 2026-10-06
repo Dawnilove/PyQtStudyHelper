@@ -100,7 +100,14 @@ run.py                  진입점 (Qt 플러그인 경로 보정, 오류 창)
 install.bat             처음 설치 (패키지 + 바탕화면 아이콘)
 tools/make_shortcut.py  바탕화면 아이콘 만들기
 studyhelper/
-  mainwindow.py         화면 조립, 파일 감시, 실행
+  mainwindow.py         화면 조립, 파일 열기·감시, 선택, 이름 검사 연결
+  filetabs.py           여러 파일 탭, 저장, 지난 탭 다시 열기
+  runner.py             실행·중지, 실행 결과와 input(), Designer 열기
+  welcome.py            시작 화면 (최근 파일, 학습 폴더 Main 모아 보기)
+  widgetactions.py      위젯 우클릭 메뉴, 시그널 코드, .ui 고치기·되돌리기, 도전 모드
+  aiactions.py          AI 해설·리뷰 요청
+  viewsettings.py       테마·아이콘·글자 크기·설정 창·도움말 연결
+  legend.py             색 범례
   preview.py            미리보기 + 위젯 강조
   editor.py             Main.py 편집기 (줄 번호, 하이라이트, hover, 자동완성 팝업)
   completer.py          자동완성 후보 (.ui 위젯, Qt 메서드·시그널, jedi)

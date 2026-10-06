@@ -3,8 +3,8 @@ from collections import Counter
 from pathlib import Path
 
 from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtWidgets import (QDialog, QHBoxLayout, QLabel, QListWidget, QListWidgetItem,
-                             QProgressBar, QPushButton, QSplitter, QVBoxLayout, QWidget)
+from PyQt5.QtWidgets import (QDialog, QHBoxLayout, QListWidget, QListWidgetItem, QProgressBar, QPushButton,
+                             QSplitter, QVBoxLayout, QWidget)
 
 from .preview import PreviewPane
 from .ui_model import UiModel

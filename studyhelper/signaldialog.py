@@ -1,7 +1,6 @@
 """시그널 도우미 대화상자: 슬롯 이름을 정하고, 넣을 코드를 미리 본 뒤 Main.py에 넣는다."""
 from PyQt5.QtGui import QFont
-from PyQt5.QtWidgets import (QDialog, QDialogButtonBox, QLabel, QLineEdit, QPlainTextEdit,
-                             QVBoxLayout)
+from PyQt5.QtWidgets import QDialog, QDialogButtonBox, QLineEdit, QPlainTextEdit, QVBoxLayout
 
 from . import codegen
 from .theme import ThemedLabel, chrome

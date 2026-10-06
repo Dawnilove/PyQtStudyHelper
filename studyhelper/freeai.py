@@ -8,8 +8,7 @@ import re
 
 from PyQt5.QtCore import Qt, QTimer, QUrl
 from PyQt5.QtGui import QDesktopServices
-from PyQt5.QtWidgets import (QApplication, QDialog, QHBoxLayout, QLabel, QLineEdit, QPushButton,
-                             QVBoxLayout)
+from PyQt5.QtWidgets import QApplication, QDialog, QHBoxLayout, QLineEdit, QPushButton, QVBoxLayout
 
 from . import ai
 from .theme import ThemedLabel, chrome

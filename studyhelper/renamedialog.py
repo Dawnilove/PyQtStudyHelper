@@ -3,8 +3,7 @@ import keyword
 import re
 
 from PyQt5.QtGui import QFont
-from PyQt5.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox, QLabel, QLineEdit,
-                             QPlainTextEdit, QVBoxLayout)
+from PyQt5.QtWidgets import QCheckBox, QDialog, QDialogButtonBox, QLineEdit, QPlainTextEdit, QVBoxLayout
 
 from .theme import ThemedLabel, chrome
 

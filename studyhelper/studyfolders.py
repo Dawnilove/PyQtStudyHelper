@@ -5,7 +5,7 @@ import threading
 from pathlib import Path
 
 from PyQt5.QtCore import QDir, QObject, QStandardPaths, Qt, QUrl, pyqtSignal
-from PyQt5.QtWidgets import (QDialog, QDialogButtonBox, QFileDialog, QHBoxLayout, QLabel, QListWidget,
+from PyQt5.QtWidgets import (QDialog, QDialogButtonBox, QFileDialog, QHBoxLayout, QListWidget,
                              QListWidgetItem, QPushButton, QVBoxLayout)
 
 from .theme import ThemedLabel, chrome

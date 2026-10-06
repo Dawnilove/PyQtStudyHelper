@@ -6,8 +6,8 @@ import threading
 from PyQt5.QtCore import QObject, QPoint, QRect, QSize, Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import (QColor, QFont, QPainter, QSyntaxHighlighter, QTextCharFormat,
                          QTextCursor, QTextFormat)
-from PyQt5.QtWidgets import (QListWidget, QListWidgetItem, QPlainTextEdit, QStyle,
-                             QStyledItemDelegate, QTextEdit, QToolTip, QWidget)
+from PyQt5.QtWidgets import (QListWidget, QListWidgetItem, QPlainTextEdit, QStyledItemDelegate, QTextEdit,
+                             QToolTip, QWidget)
 
 from . import theme
 from .completer import Completer

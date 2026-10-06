@@ -8,9 +8,9 @@ import re
 from pathlib import Path
 
 from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtGui import QColor, QFont
-from PyQt5.QtWidgets import (QHBoxLayout, QLabel, QPushButton, QStyle, QTreeWidget, QTreeWidgetItem,
-                             QVBoxLayout, QWidget)
+from PyQt5.QtGui import QColor
+from PyQt5.QtWidgets import (QHBoxLayout, QPushButton, QStyle, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
+                             QWidget)
 
 from .studyfolders import SKIP_DIRS
 from . import theme

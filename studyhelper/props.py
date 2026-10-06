@@ -3,9 +3,8 @@ from html import escape
 
 from PyQt5.QtCore import QMetaMethod, QObject, Qt, QUrl, pyqtSignal
 from PyQt5.QtGui import QColor, QDesktopServices, QFont
-from PyQt5.QtWidgets import (QApplication, QHeaderView, QLabel, QListWidget, QListWidgetItem, QPlainTextEdit,
-                             QPushButton, QTabWidget, QTableWidget, QTableWidgetItem, QTextBrowser,
-                             QVBoxLayout, QWidget)
+from PyQt5.QtWidgets import (QApplication, QHeaderView, QListWidget, QListWidgetItem, QPlainTextEdit,
+                             QPushButton, QTabWidget, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
 from . import codeview, examples, notes, theme
 from .ui_model import editable_value
