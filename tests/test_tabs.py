@@ -12,6 +12,7 @@ from PyQt5.QtTest import QTest                                      # noqa: E402
 from PyQt5.QtWidgets import QApplication, QMessageBox               # noqa: E402
 
 import studyhelper.mainwindow as mw                                 # noqa: E402
+from studyhelper import learnlog                                    # noqa: E402
 
 
 class _NoWorker(QObject):
@@ -40,9 +41,12 @@ class WindowCase(unittest.TestCase):
                 (mock.patch("studyhelper.editor._CompletionWorker", _NoWorker), None)):
             target.start()
             self.addCleanup(target.stop)
-        rec = mock.patch.dict(os.environ, {"PYQTSTUDY_RECOVERY_DIR": str(self.root / "rec")})
+        rec = mock.patch.dict(os.environ, {"PYQTSTUDY_RECOVERY_DIR": str(self.root / "rec"),
+                                           "PYQTSTUDY_LOG_DIR": str(self.root / "log")})   # never the real 학습 기록
         rec.start()
         self.addCleanup(rec.stop)
+        learnlog.reset_cache()
+        self.addCleanup(learnlog.reset_cache)
         self.a = self.make("a.py", "print('A')\n")
         self.b = self.make("b.py", "print('B')\n")
         self.w = mw.MainWindow()

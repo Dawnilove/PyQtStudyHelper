@@ -8,7 +8,12 @@ from PyQt5.QtCore import pyqtSignal, QProcess, QProcessEnvironment, Qt
 from PyQt5.QtGui import QColor, QFont
 from PyQt5.QtWidgets import QMessageBox, QPlainTextEdit
 
-from . import errors, theme
+from . import errors, learnlog, theme
+
+
+def error_kind(error_line: str) -> str:
+    """'AttributeError: ...' / 'PyQt5.uic.Error: ...' -> 'AttributeError' / 'Error'."""
+    return error_line.split(":", 1)[0].strip().split(".")[-1]
 
 
 class OutputView(QPlainTextEdit):
@@ -112,6 +117,7 @@ class RunMixin:
         proc.start(sys.executable, ["-u", str(self.py_path)])
         self.a_stop.setEnabled(True)
         self._set_input_enabled(True)
+        learnlog.note_run()
 
     def _set_input_enabled(self, on):
         self.stdin_edit.setEnabled(on)
@@ -150,6 +156,7 @@ class RunMixin:
         ex = errors.explain(self._stderr, run_py.parent, names, top)
         if ex is None:
             return
+        learnlog.note_error(error_kind(ex.error_line))
         self._out(f"\n[도우미 해설] {ex.error_line}\n", "#6f42c1")
         if ex.hint:
             self._out(f"  → {ex.hint}\n", "#6f42c1")

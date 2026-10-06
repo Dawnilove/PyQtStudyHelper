@@ -151,6 +151,7 @@ class TabsMixin:
         self._mismatch = import_mismatch(self.py_path)
         self.run_check()
         self._status(f"{self.py_path.name} 저장함")
+        self._after_save(self.py_path)
         return True
 
     def _confirm_discard(self) -> bool:

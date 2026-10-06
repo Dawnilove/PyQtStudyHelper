@@ -155,6 +155,9 @@ class ViewMixin:
             "<tr><td><b>Ctrl+E</b></td><td>선택한 줄을 AI에게 설명 듣기</td></tr>"
             "<tr><td><b>F2</b></td><td>선택한 위젯의 objectName 바꾸기 (.ui와 Main.py 함께)</td></tr>"
             "<tr><td><b>Ctrl+T</b></td><td>화면 따라 만들기 도전</td></tr>"
+            "<tr><td><b>Ctrl+Shift+T</b></td><td>코드 과제 (저장할 때마다 자동 채점)</td></tr>"
+            "<tr><td><b>Ctrl+Shift+L</b></td><td>학습 기록 (공부한 날, 많이 본 위젯, 자주 만난 에러)</td></tr>"
+            "<tr><td><b>위젯 우클릭</b></td><td>위젯 추가·삭제·순서 바꾸기, 시그널 연결 코드 넣기</td></tr>"
             "<tr><td><b>시그널 탭</b></td><td>시그널 더블클릭 → connect 줄과 함수 틀 넣기</td></tr>"
             "<tr><td><b>Ctrl+휠, Ctrl+= / Ctrl+-</b></td><td>코드 글자 크기</td></tr>"
             "</table><br>"
@@ -172,9 +175,12 @@ class ViewMixin:
         for act, name, color in ((self.a_open, "open", None), (self.a_save, "save", None),
                                  (self.a_designer, "designer", None), (self.a_run, "run", t["run"]),
                                  (self.a_stop, "stop", t["stop"]), (self.a_explain, "ai", t["accent"]),
-                                 (self.a_challenge, "challenge", None), (self.a_help, "help", None),
+                                 (self.a_challenge, "challenge", None), (self.a_tasks, "task", None),
+                                 (self.a_learnlog, "log", None), (self.a_help, "help", None),
                                  (self.a_find, "find", None), (self.a_study, "folders", None)):
             act.setIcon(icons.icon(name, color))
+        for b in self._welcome_buttons:
+            b.setIcon(icons.icon(b.icon_name))
         self.explorer.set_icons(icons.icon("folders"), icons.icon("refresh"))
 
     def _chrome(self):
@@ -200,7 +206,7 @@ class ViewMixin:
         self.line_view._last = None
         self._on_cursor_moved()                # re-draws the 해설 panel with the new colours
         if self.sel:
-            self.select(self.sel, "tree")
+            self.select(self.sel, "reload")
 
     def toggle_legend(self):
         on = self.a_legend.isChecked()

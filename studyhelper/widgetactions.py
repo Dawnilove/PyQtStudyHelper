@@ -1,16 +1,19 @@
-"""위젯에 하는 일: 우클릭 메뉴, 시그널 연결 코드, .ui 값 고치기·이름 바꾸기·되돌리기, 도전 모드, 노트 링크."""
+"""위젯에 하는 일: 우클릭 메뉴, 시그널 연결 코드, .ui 값 고치기·이름 바꾸기·되돌리기, 도전 모드, 코드 과제,
+학습 기록, 노트 링크."""
 from pathlib import Path
 
 from PyQt5.QtCore import Qt, QTimer, QUrl
 from PyQt5.QtGui import QDesktopServices, QTextCursor
 from PyQt5.QtWidgets import QMenu, QMessageBox
 
-from . import examples, uihistory
+from . import examples, learnlog, recovery, uihistory
 from .challenge import ChallengeWindow
 from .explainpanel import AI_LINK
+from .learnview import LearnLogDialog
 from .props import signals_of
 from .renamedialog import RenameDialog
 from .signaldialog import SignalInsertDialog
+from .taskwindow import TaskWindow
 from .ui_model import rename_object, set_property
 
 
@@ -25,7 +28,8 @@ COMMON_SIGNALS = ["clicked()", "clicked(bool)", "toggled(bool)", "textChanged(QS
 
 
 class WidgetMixin:
-    """MainWindow part: 위젯에 하는 일: 우클릭 메뉴, 시그널 연결 코드, .ui 값 고치기·이름 바꾸기·되돌리기, 도전 모드, 노트 링크."""
+    """MainWindow part: 위젯에 하는 일: 우클릭 메뉴, 시그널 연결 코드, .ui 값 고치기·이름 바꾸기·되돌리기, 도전 모드,
+    코드 과제, 학습 기록, 노트 링크."""
 
     def insert_signal(self, widget, sig, all_sigs):
         if not self.py_path:
@@ -179,6 +183,37 @@ class WidgetMixin:
         self._watch()
         self.open_designer()
         self._status(f"{p.name} 를 Designer로 열었어요. 저장할 때마다 도전 창이 채점해요.", 10000)
+
+    # ------------------------------------------------------------ code assignments / learning log
+    def open_tasks(self):
+        if self.task_window is None:
+            self.task_window = TaskWindow(self.settings, self)
+            self.task_window.openRequested.connect(self.open_path)
+            self.task_window.saveRequested.connect(self._save_if_open)
+        self.task_window.show()
+        self.task_window.raise_()
+        self.task_window.activateWindow()
+
+    def _save_if_open(self, path):
+        """The task window grades a file: save it first if it is open here with unsaved edits."""
+        p = str(Path(path).resolve())
+        if self.py_path and str(self.py_path) == p:
+            if self.editor.document().isModified():
+                self.save_py()
+        elif p in self._stash and self._save_stashed(p):
+            self._stash.pop(p, None)
+            recovery.clear(p)
+            self._refresh_tab_titles()
+
+    def _after_save(self, path):
+        if self.task_window is not None:
+            self.task_window.on_saved(str(path))
+
+    def show_learnlog(self):
+        learnlog.reset_cache()                     # another helper window may have written to it
+        dlg = LearnLogDialog(self)
+        dlg.tasksRequested.connect(lambda: (dlg.accept(), self.open_tasks()))
+        dlg.exec_()
 
     def _on_line_link(self, url):
         if url.toString() == AI_LINK:

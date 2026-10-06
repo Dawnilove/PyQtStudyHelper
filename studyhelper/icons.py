@@ -69,6 +69,17 @@ def _draw(name, pt: QPainter, color: QColor):
         path.lineTo(18, 12.5)
         path.lineTo(6, 12.5)
         pt.drawPath(path)
+    elif name == "task":                                      # a clipboard with a tick: code assignments
+        pt.drawRoundedRect(QRectF(5, 5, 14, 16), 2, 2)
+        pt.drawRoundedRect(QRectF(9, 3, 6, 3.6), 1, 1)
+        path.moveTo(8.5, 13.5)
+        path.lineTo(11, 16)
+        path.lineTo(15.8, 10.8)
+        pt.drawPath(path)
+    elif name == "log":                                       # a small bar chart: learning log
+        pt.drawLine(QPointF(4, 20), QPointF(20, 20))
+        for x, top in ((7, 13), (12, 8), (17, 11)):
+            pt.drawLine(QPointF(x, 17.5), QPointF(x, top))
     elif name == "help":
         pt.drawEllipse(QRectF(3, 3, 18, 18))
         f = QFont("Segoe UI")

@@ -3,9 +3,11 @@ from collections import Counter
 from pathlib import Path
 
 from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import (QDialog, QHBoxLayout, QListWidget, QListWidgetItem, QProgressBar, QPushButton,
                              QSplitter, QVBoxLayout, QWidget)
 
+from . import learnlog, theme
 from .preview import PreviewPane
 from .ui_model import UiModel
 from .theme import ThemedLabel, chrome
@@ -173,10 +175,12 @@ class ChallengeWindow(QDialog):
         pct = round(100 * passed / max(1, len(main)))
         self.bar.setValue(pct)
         done = passed == len(main)
+        if done:
+            learnlog.note_challenge(f"{self.target_path.parent.name}/{self.target_path.name}")
         self.mine_label.setText(f"내 파일: <b>{Path(mine_path).name}</b> — "
                                 + ("<span style='color:#2b8a3e;font-size:12pt'><b>★ 완성! 목표 화면과 구조가 같아요.</b></span>"
                                    if done else f"{passed}/{len(main)} 통과"))
         for ok, check, hint in res:
             it = QListWidgetItem(("●  " if ok else "○  ") + check + (f"   — {hint}" if hint else ""))
-            it.setForeground(Qt.darkGreen if ok else Qt.black)
+            it.setForeground(QColor(theme.fg("#2b8a3e") if ok else theme.T["text"]))   # readable in both themes
             self.checks.addItem(it)

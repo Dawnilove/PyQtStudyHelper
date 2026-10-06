@@ -9,7 +9,7 @@ from PyQt5.QtWidgets import (QAction, QApplication, QComboBox, QDialog, QDockWid
                              QSizePolicy, QSplitter, QStackedWidget, QStyle, QTabBar, QTabWidget,
                              QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
 
-from . import checker, codeview, helpmenu, recovery, theme
+from . import checker, codeview, helpmenu, learnlog, recovery, theme
 from .aiactions import AiMixin
 from .editor import CodeEditor
 from .explainpanel import AiPanel, LineExplainView
@@ -138,7 +138,12 @@ class MainWindow(ViewMixin, TabsMixin, RunMixin, WelcomeMixin, WidgetMixin, AiMi
         self.a_challenge = A("도전 모드…", self.start_challenge, "Ctrl+T", QStyle.SP_DialogApplyButton,
                              "목표 화면(.ui)을 보고 Designer로 똑같이 만들어 보기 — 저장할 때마다 자동 채점")
         self.challenge = None
-        self.a_find = A("찾기…", lambda: self.findbar.open_bar(False), QKeySequence.Find, None, "코드에서 찾기 (Ctrl+F)")
+        self.a_tasks = A("코드 과제…", self.open_tasks, "Ctrl+Shift+T", None,
+                         "‘버튼을 누르면 라벨이 바뀌게’ 같은 짧은 과제 — Main.py를 저장할 때마다 자동 채점 (Ctrl+Shift+T)")
+        self.task_window = None
+        self.a_learnlog = A("학습 기록…", self.show_learnlog, "Ctrl+Shift+L", None,
+                            "공부한 날, 많이 본 위젯, 자주 만난 에러, 푼 과제 (이 PC에만 저장)")
+        self.a_find =A("찾기…", lambda: self.findbar.open_bar(False), QKeySequence.Find, None, "코드에서 찾기 (Ctrl+F)")
         self.a_replace = A("바꾸기…", lambda: self.findbar.open_bar(True), "Ctrl+H", None, "찾아서 바꾸기 (Ctrl+H)")
         self.a_undo_ui = A(".ui 되돌리기", self.undo_ui, "Ctrl+Alt+Z", None,
                            "도우미에서 바꾼 .ui(속성 값, 이름 바꾸기, 위젯 추가·삭제)를 바로 전으로 되돌려요")
@@ -166,8 +171,11 @@ class MainWindow(ViewMixin, TabsMixin, RunMixin, WelcomeMixin, WidgetMixin, AiMi
             m.addAction(a)
         m = mb.addMenu("위젯(&W)")
         m.addAction(self.a_rename)
-        m = mb.addMenu("도전(&C)")
+        m = mb.addMenu("연습(&P)")
         m.addAction(self.a_challenge)
+        m.addAction(self.a_tasks)
+        m.addSeparator()
+        m.addAction(self.a_learnlog)
         m = mb.addMenu("AI(&A)")
         for a in (self.a_explain, self.a_review):
             m.addAction(a)
@@ -214,6 +222,7 @@ class MainWindow(ViewMixin, TabsMixin, RunMixin, WelcomeMixin, WidgetMixin, AiMi
         tb.addSeparator()
         tb.addAction(self.a_explain)
         tb.addAction(self.a_challenge)
+        tb.addAction(self.a_tasks)
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         tb.addWidget(spacer)
@@ -522,6 +531,7 @@ class MainWindow(ViewMixin, TabsMixin, RunMixin, WelcomeMixin, WidgetMixin, AiMi
         self._add_recent(p)
         self.stack.setCurrentIndex(1)
         self._on_cursor_moved()
+        learnlog.note_open(p)
         return True
 
     # ------------------------------------------------------------ file tabs
@@ -693,6 +703,7 @@ class MainWindow(ViewMixin, TabsMixin, RunMixin, WelcomeMixin, WidgetMixin, AiMi
             self.tree.blockSignals(False)
         if source in ("preview", "tree"):
             self.editor.reveal(name)
+            learnlog.note_widget(node.cls)
         self._status(f"{name} ({node.cls}) — {node.position_text()}", 0)
 
     def _tooltip_for(self, name):
@@ -831,6 +842,8 @@ class MainWindow(ViewMixin, TabsMixin, RunMixin, WelcomeMixin, WidgetMixin, AiMi
             return
         self.stop()
         self.ai_panel.stop()
+        if self.task_window is not None:
+            self.task_window.close()             # stops a grading run that is still going
         self.settings.setValue("session/tabs", [self.file_tabs.tabData(i) for i in range(self.file_tabs.count())])
         self.settings.setValue("session/current", str(self.py_path) if self.py_path else "")
         if self.explorer_dock.isVisible():

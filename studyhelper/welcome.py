@@ -37,6 +37,22 @@ class WelcomeMixin:
         hint = ThemedLabel("또는 Main.py / gui.ui / 실습 폴더를 이 창에 끌어다 놓으세요.")
         hint.setStyleSheet("color:#888")
         box.addWidget(hint)
+        box.addSpacing(6)
+        more = QHBoxLayout()
+        self._welcome_buttons = []
+        for text, icon_name, slot, tip in (
+                ("코드 과제 풀기", "task", self.open_tasks, "짧은 과제를 풀면 저장할 때마다 자동으로 채점해요"),
+                ("화면 따라 만들기", "challenge", self.start_challenge, "목표 화면을 Designer로 똑같이 만들어 보기"),
+                ("학습 기록", "log", self.show_learnlog, "공부한 날, 많이 본 위젯, 자주 만난 에러")):
+            b = QPushButton(text)
+            b.setIconSize(QSize(18, 18))
+            b.setToolTip(tip)
+            b.clicked.connect(slot)
+            b.icon_name = icon_name
+            more.addWidget(b)
+            self._welcome_buttons.append(b)
+        more.addStretch(1)
+        box.addLayout(more)
         box.addSpacing(14)
         box.addWidget(ThemedLabel("<b>최근 파일</b>  <span style='color:#888'>(더블클릭)</span>"))
         self.recent_list = QListWidget()
