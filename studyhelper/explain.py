@@ -87,6 +87,12 @@ SIGNAL_ARGS = {
     "triggered": "bool", "timeout": "없음", "buttonClicked": "QAbstractButton (눌린 버튼)",
     "itemClicked": "항목 객체", "accepted": "없음", "rejected": "없음", "activated": "int",
     "sliderMoved": "int", "dateChanged": "QDate", "timeChanged": "QTime",
+    "itemDoubleClicked": "항목 객체", "itemChanged": "항목 객체", "currentRowChanged": "int (새 행 번호)",
+    "currentItemChanged": "(새 항목, 이전 항목)", "cellClicked": "(행, 열) int 두 개",
+    "cellDoubleClicked": "(행, 열) int 두 개", "cellChanged": "(행, 열) int 두 개",
+    "doubleClicked": "QModelIndex", "selectionChanged": "없음", "cursorPositionChanged": "없음 (QLineEdit은 이전·새 위치)",
+    "finished": "int (대화상자 결과 코드) — QThread.finished는 없음", "started": "없음",
+    "dateTimeChanged": "QDateTime", "selectedDateChanged": "없음", "idToggled": "(id, bool)",
 }
 rule(r"self\.(\w+)\.(\w+)\.connect\(self\.(\w+)\)", "시그널 연결",
      "{0} 의 {1} 시그널이 발생하면 self.{2}() 를 자동으로 호출하게 연결해요.",
@@ -190,6 +196,177 @@ rule(r"def (mouse\w+Event|key\w+Event|closeEvent|paintEvent|resizeEvent|wheelEve
      "이름 철자가 하나라도 다르면 그냥 새 메서드가 돼서 호출되지 않아요.")
 rule(r"QPainter\(", "QPainter()", "위젯 위에 선·도형·글자를 직접 그리는 붓이에요.", "",
      "paintEvent 안에서만 그려야 해요. 다시 그리려면 self.update() 를 불러요.")
+
+rule(r"QTimer\.singleShot\(", "QTimer.singleShot()",
+     "정한 시간(ms)이 지난 뒤 함수를 한 번만 실행해요.",
+     "잠깐 기다렸다가 할 일(메시지 지우기 등)에 써요. time.sleep()과 달리 화면이 멈추지 않아요.")
+rule(r"\.setInterval\(", ".setInterval()", "타이머가 timeout을 보내는 간격(ms)을 정해요.")
+rule(r"\.stop\(\)", ".stop()", "타이머(또는 작업)를 멈춰요. 다시 start() 하면 이어서 돌아요.")
+rule(r"\.isActive\(\)", ".isActive()", "타이머가 지금 돌고 있으면 True예요.",
+     "시작/정지를 한 버튼으로 바꿀 때 지금 상태를 확인하려고 써요.")
+rule(r"\.start\(\)", ".start()", "타이머나 스레드를 시작해요. 스레드면 별도 스레드에서 run() 이 실행돼요.", "",
+     "스레드에서 run() 을 직접 부르면 그냥 메인 스레드에서 실행돼서 화면이 멈춰요. 꼭 start() 로 시작해요.")
+rule(r"def run\(self", "def run(self)", "QThread를 상속했다면, start() 했을 때 별도 스레드에서 실행될 내용이에요.",
+     "오래 걸리는 반복·다운로드를 여기 두면 창이 멈추지 않아요.",
+     "여기서 위젯을 직접 바꾸지 말고 시그널.emit() 으로 결과를 보내요.")
+rule(r"\.wait\(\)", ".wait()", "스레드가 끝날 때까지 기다려요.", "",
+     "메인 스레드에서 부르면 그동안 창이 멈춰요. 보통 창을 닫을 때 정리용으로만 써요.")
+
+# --- tables / lists ------------------------------------------------------------------
+rule(r"\.set(RowCount|ColumnCount)\(", ".set{0}()", "표(QTableWidget)의 {0}(행/열 개수)를 정해요.",
+     "", "개수를 먼저 늘려야 setItem() 으로 넣은 칸이 보여요.")
+rule(r"QTableWidgetItem\(", "QTableWidgetItem()", "표의 칸 하나에 들어갈 항목을 만들어요.", "",
+     "글자(str)만 받아요. 숫자는 str(값) 으로 바꿔 넣어요.")
+rule(r"\.setItem\(", ".setItem(행, 열, 항목)", "표의 (행, 열) 칸에 항목을 넣어요. 번호는 0부터예요.")
+rule(r"\.item\(\s*[\w.()]+\s*,\s*[\w.()]+\s*\)", ".item(행, 열)", "표의 (행, 열) 칸 항목을 가져와요.", "",
+     "빈 칸이면 None 이 와요 → 바로 .text() 하면 AttributeError. if 항목: 으로 먼저 확인해요.")
+rule(r"\.setHorizontalHeaderLabels\(", ".setHorizontalHeaderLabels()", "표 맨 위 열 제목들을 리스트로 정해요.")
+rule(r"\.rowCount\(\)", ".rowCount()", "표의 행 개수를 돌려줘요.",
+     "insertRow(rowCount()) 처럼 '맨 끝에 한 줄 추가'할 때 자주 써요.")
+rule(r"\.insertRow\(", ".insertRow()", "표의 그 번호 자리에 빈 행을 끼워 넣어요.")
+rule(r"\.removeRow\(", ".removeRow()", "표에서 그 번호의 행을 지워요.")
+rule(r"\.currentRow\(\)", ".currentRow()", "선택된 행(리스트면 항목) 번호를 돌려줘요. 선택이 없으면 -1.", "",
+     "-1 인 채로 removeRow/takeItem 하면 아무 일도 안 일어나거나 엉뚱한 줄이 지워져요. 먼저 확인해요.")
+rule(r"\.resizeColumnsToContents\(\)", ".resizeColumnsToContents()", "열 너비를 내용에 맞게 맞춰요.")
+rule(r"\.currentItem\(\)", ".currentItem()", "선택된 항목 객체를 돌려줘요. 글자는 .text() 로 꺼내요.", "",
+     "선택이 없으면 None 이에요 → .text() 전에 if 항목: 으로 확인해요.")
+rule(r"\.takeItem\(", ".takeItem()", "리스트에서 그 번호의 항목을 빼내요 (화면에서 사라져요).")
+rule(r"\.count\(\)", ".count()", "항목 개수를 돌려줘요 (리스트·콤보박스·탭 등).")
+rule(r"\.setCurrentIndex\(", ".setCurrentIndex()", "선택(콤보박스 항목, 탭, 쌓인 페이지)을 번호로 바꿔요.",
+     "", "바뀌면 currentIndexChanged 시그널도 발생해요.")
+rule(r"\.setCurrentText\(", ".setCurrentText()", "콤보박스에서 그 글자의 항목을 선택해요.")
+
+# --- input widgets ------------------------------------------------------------------
+rule(r"\.set(Range|Minimum|Maximum)\(", ".set{0}()", "스핀박스·슬라이더·진행바가 가질 수 있는 값의 범위를 정해요.",
+     "", "범위 밖 값을 setValue() 하면 끝값으로 잘려요.")
+rule(r"\.setSingleStep\(", ".setSingleStep()", "화살표/키 한 번에 바뀌는 크기를 정해요.")
+rule(r"\.setPlaceholderText\(", ".setPlaceholderText()", "입력칸이 비었을 때 보이는 흐린 안내 글자예요.",
+     "", "안내 글자는 text() 로 읽히지 않아요. 비어 있으면 '' 이에요.")
+rule(r"\.setEchoMode\(", ".setEchoMode()", "입력한 글자를 어떻게 보일지 정해요. QLineEdit.Password 면 ●●● 로 가려요.")
+rule(r"\.setReadOnly\(", ".setReadOnly()", "읽기만 되고 고칠 수 없게 해요 (선택·복사는 돼요).")
+rule(r"\.setMaxLength\(", ".setMaxLength()", "입력할 수 있는 최대 글자 수를 정해요.")
+rule(r"Q(Int|Double|RegularExpression|RegExp)Validator\(", "Q{0}Validator()",
+     "입력칸에 들어갈 수 있는 값을 제한하는 검사기를 만들어요.",
+     "숫자만 받게 해 두면 int() 변환 에러를 미리 막을 수 있어요.")
+rule(r"\.setValidator\(", ".setValidator()", "입력칸에 검사기를 붙여요. 조건에 안 맞는 글자는 입력되지 않아요.")
+rule(r"\.setFocus\(\)", ".setFocus()", "키보드 입력이 이 위젯으로 가게 해요 (커서가 깜박여요).")
+rule(r"\.selectAll\(\)", ".selectAll()", "입력칸의 글자를 모두 선택해요. 다시 입력하기 편하게 할 때 써요.")
+rule(r"\.strip\(\)", ".strip()", "문자열 앞뒤의 공백·줄바꿈을 없앤 새 문자열을 돌려줘요.",
+     "스페이스만 입력한 경우도 '빈 값'으로 처리하려고 써요.")
+rule(r"QButtonGroup\(", "QButtonGroup()", "라디오 버튼·체크박스를 하나의 묶음으로 관리해요.",
+     "어느 버튼이 눌렸는지 buttonClicked 시그널 하나로 받을 수 있어요.")
+rule(r"\.checked(Button|Id)\(\)", ".checked{0}()", "묶음에서 지금 체크된 버튼(또는 그 id)을 돌려줘요. 없으면 None/-1.")
+rule(r"\.selectedDate\(\)", ".selectedDate()", "달력에서 고른 날짜를 QDate로 돌려줘요.")
+rule(r"\.(date|time|dateTime)\(\)", ".{0}()", "날짜/시간 값을 꺼내요. QDateEdit 같은 위젯이면 Q{0} 객체가 오고, 글자는 .toString() 으로 바꿔요.")
+
+# --- look ----------------------------------------------------------------------------
+rule(r"\.setAlignment\(", ".setAlignment()", "글자를 왼쪽/가운데/오른쪽 등으로 정렬해요. 예: Qt.AlignCenter")
+rule(r"QFont\(", "QFont()", "글꼴(이름, 크기, 굵기)을 만들어요. setFont() 로 위젯에 적용해요.")
+rule(r"\.setFont\(", ".setFont()", "위젯의 글꼴을 바꿔요.")
+rule(r"\.setToolTip\(", ".setToolTip()", "마우스를 올리면 뜨는 작은 설명 글자를 정해요.")
+rule(r"QIcon\(", "QIcon()", "버튼·창에 쓸 아이콘을 그림 파일에서 만들어요.")
+rule(r"\.setIcon\(", ".setIcon()", "버튼 등에 아이콘을 붙여요.")
+rule(r"\.setWindowIcon\(", ".setWindowIcon()", "창 제목줄·작업 표시줄에 보일 아이콘을 정해요.")
+rule(r"\.setFixedSize\(", ".setFixedSize()", "창/위젯 크기를 고정해요. 사용자가 크기를 바꿀 수 없어요.")
+rule(r"\.setWordWrap\(", ".setWordWrap()", "글자가 길면 줄을 바꿔서 보여줘요 (QLabel).")
+rule(r"\.scaled\(", ".scaled()", "그림을 원하는 크기로 바꾼 '새' 그림을 돌려줘요.",
+     "Qt.KeepAspectRatio 를 주면 비율을 유지해요.", "원본은 그대로예요. 결과를 받아서 써야 해요.")
+rule(r"QColor\(", "QColor()", "색을 만들어요. 이름('red'), '#ff0000', (빨, 초, 파) 숫자로 만들 수 있어요.")
+rule(r"\.showMessage\(", ".showMessage()", "창 아래 상태 표시줄에 짧은 안내를 띄워요. 시간(ms)을 주면 그 뒤 사라져요.")
+rule(r"\.addTab\(", ".addTab()", "탭 위젯에 새 탭(페이지)을 추가해요.")
+
+# --- layouts made in code ----------------------------------------------------------
+rule(r"Q(V|H)BoxLayout\(", "Q{0}BoxLayout()", "위젯을 세로(V) / 가로(H) 로 차례대로 늘어놓는 배치를 만들어요.",
+     "좌표를 직접 주지 않아도 창 크기에 맞춰 자동으로 늘고 줄어요.")
+rule(r"QGridLayout\(", "QGridLayout()", "위젯을 (행, 열) 칸에 놓는 표 모양 배치를 만들어요.")
+rule(r"\.addWidget\(", ".addWidget()", "배치(레이아웃)에 위젯을 추가해요. 추가한 순서대로 놓여요.")
+rule(r"\.addLayout\(", ".addLayout()", "배치 안에 다른 배치를 넣어요 (가로줄 여러 개를 세로로 쌓기 등).")
+rule(r"\.setLayout\(", ".setLayout()", "위젯(창)에 배치를 적용해요. 이때부터 그 안 위젯이 자동 정렬돼요.", "",
+     "QMainWindow에는 바로 못 써요 → 빈 QWidget에 setLayout 한 뒤 setCentralWidget 으로 넣어요.")
+rule(r"\.setCentralWidget\(", ".setCentralWidget()", "QMainWindow의 가운데(메뉴·툴바·상태줄을 뺀 영역)에 위젯을 넣어요.")
+
+# --- message box object ------------------------------------------------------------
+rule(r"QMessageBox\(\s*(self)?\s*\)", "QMessageBox()", "알림 창을 객체로 직접 만들어요.",
+     "아이콘·버튼·글자를 하나씩 정해서 꾸밀 때 써요. 마지막에 exec_() 로 띄워요.")
+rule(r"\.setStandardButtons\(", ".setStandardButtons()", "알림 창에 나올 버튼(Yes | No 등)을 정해요.")
+rule(r"==\s*QMessageBox\.(\w+)", "== QMessageBox.{0}", "사용자가 누른 버튼이 {0} 인지 비교해요.")
+
+# --- date / time -------------------------------------------------------------------
+rule(r"Q(Date|Time|DateTime)\.current(Date|Time|DateTime)\(\)", "Q{0}.current{1}()", "지금 날짜/시간을 가져와요.")
+rule(r"\.toString\(\s*['\"]([^'\"]+)['\"]", ".toString('{0}')", "날짜/시간을 '{0}' 모양의 글자로 바꿔요.",
+     "yyyy=년, MM=월, dd=일, hh=시, mm=분, ss=초. 대소문자에 따라 뜻이 달라요 (MM 월, mm 분).")
+rule(r"datetime\.now\(\)", "datetime.now()", "파이썬 기본 모듈로 지금 날짜·시간을 가져와요.")
+
+# --- python basics that show up in every lesson -----------------------------------
+rule(r"\bint\(\s*self\.\w+\.text\(\)", "int(...text())", "입력칸의 글자를 정수로 바꿔요.", "",
+     "빈칸이나 '12a' 같은 글자면 ValueError가 나요 → try/except 로 감싸거나 검사기를 붙여요.")
+rule(r"\bfloat\(", "float()", "글자나 정수를 실수(소수점 숫자)로 바꿔요.", "", "숫자가 아닌 글자면 ValueError가 나요.")
+rule(r"\bstr\(", "str()", "값을 글자(문자열)로 바꿔요. setText() 에 숫자를 넣을 때 필요해요.")
+rule(r"^\s*try\s*:", "try:", "에러가 날 수도 있는 코드를 감싸요.",
+     "에러가 나도 프로그램이 꺼지지 않고 except 쪽으로 가서 안내할 수 있어요.")
+rule(r"^\s*except\s+(\w+)", "except {0}:", "위 try 안에서 {0} 에러가 나면 여기를 실행해요.",
+     "ValueError(숫자 변환 실패), ZeroDivisionError(0으로 나눔), FileNotFoundError(파일 없음)가 자주 나와요.")
+rule(r"^\s*except\s*:", "except:", "try 안에서 어떤 에러가 나든 여기를 실행해요.", "",
+     "모든 에러를 숨겨서 진짜 버그를 놓치기 쉬워요. 가능하면 except ValueError: 처럼 종류를 적어요.")
+rule(r"with open\(", "with open(...) as f:", "파일을 열고, 블록이 끝나면 자동으로 닫아요.",
+     "close() 를 빼먹을 일이 없어서 파일은 보통 with 로 열어요.",
+     "한글 파일은 encoding='utf-8' 을 꼭 넣어요. 안 넣으면 윈도우에서 글자가 깨지거나 에러가 나요.")
+rule(r"\.read\(\)", ".read()", "파일 내용 전체를 한 번에 읽어 문자열로 돌려줘요.")
+rule(r"\.readlines\(\)", ".readlines()", "파일을 줄 단위 리스트로 읽어요. 각 줄 끝에 \\n 이 붙어 있어요.")
+rule(r"\.write\(", ".write()", "파일에 글자를 써요. 줄을 바꾸려면 \\n 을 직접 넣어요.")
+rule(r"\bf['\"]", "f-문자열", "f'...' 안의 {변수} 자리에 값이 들어간 문자열을 만들어요.",
+     "글자와 값을 + 로 이어 붙이지 않아도 돼서 읽기 쉬워요.")
+rule(r"for\s+(\w+)\s+in\s+range\(", "for {0} in range()", "{0} 를 0부터 하나씩 늘리며 반복해요 (끝 숫자는 포함 안 함).")
+rule(r"for\s+(\w+)\s+in\s+(?!range\()", "for {0} in ...", "목록의 값을 하나씩 {0} 에 담아 반복해요.")
+rule(r"random\.(\w+)\(", "random.{0}()", "무작위 값을 만들어요 (randint=정수, choice=목록에서 하나, shuffle=섞기).")
+rule(r"os\.path\.(\w+)\(", "os.path.{0}()", "파일 경로를 다루는 함수예요 (exists=있는지, join=이어 붙이기, basename=파일 이름).")
+rule(r"\.key\(\)\s*==\s*Qt\.Key_(\w+)", "e.key() == Qt.Key_{0}", "누른 키가 {0} 키인지 확인해요 (keyPressEvent 안에서).")
+rule(r"^\s*(\w+)\s*=\s*(\w*(?:Form|Dialog|Window|Dlg|dlg)\w*)\(self\)", "{0} = {1}(self)",
+     "{1} 창(대화상자)을 만들면서 부모로 지금 창(self)을 넘겨요.",
+     "부모가 있으면 부모 창 가운데에 뜨고, 부모 창이 닫힐 때 같이 정리돼요.")
+
+rule(r"sys\.executable", "sys.executable", "지금 이 프로그램을 실행하고 있는 python.exe 의 경로예요.",
+     "'python' 이라고 쓰는 대신 이걸 쓰면, PyQt5가 설치된 바로 그 파이썬으로 명령을 실행해요.")
+rule(r"^\s*print\(", "print()", "실행 결과 창(콘솔)에 글자를 출력해요.",
+     "화면(GUI)에는 안 보여요. 값이 제대로 들어왔는지 확인하는 디버깅용으로 많이 써요.")
+rule(r"^\s*return\b", "return", "함수를 여기서 끝내고, 뒤에 적은 값을 부른 쪽에 돌려줘요 (값이 없으면 None).")
+rule(r"^\s*from PyQt5\.(\w+) import (?!\*)(.+)", "from PyQt5.{0} import …",
+     "PyQt5.{0} 모듈에서 {1} 만 골라서 가져와요.",
+     "필요한 것만 적으면 어떤 이름이 어디서 왔는지 한눈에 보여요.")
+rule(r"^\s*(?:from|import)\s+(?!PyQt5|sys\b)(\w+)", "import {0}",
+     "{0} 모듈(다른 파일이나 라이브러리)을 가져와요.",
+     "내가 만든 파일이면 같은 폴더에 {0}.py 가 있어야 해요.")
+rule(r"@pyqtSlot\(", "@pyqtSlot()", "이 함수가 슬롯이라고 Qt에게 알려 주는 표시(데코레이터)예요.",
+     "괄호 안 타입은 받을 시그널 값의 종류예요. 없어도 동작하지만, 스레드 간 연결에서 더 정확하고 빨라요.")
+rule(r"^\s*def\s+(?!__init__|run\b|\w+Event\b)(\w+)\(self", "def {0}(self…)",
+     "{0} 메서드(클래스 안 함수)를 정의해요.",
+     "시그널에 connect(self.{0}) 로 연결하거나, 다른 곳에서 self.{0}() 로 불러 써요.")
+rule(r"^\s*def\s+(data|headerData|rowCount|columnCount|flags|setData)\(self", "def {0}(self, …)",
+     "모델(QAbstractTableModel 등)이 뷰에게 '{0}' 정보를 알려 주는 메서드를 재정의해요.",
+     "QTableView 같은 뷰는 화면을 그릴 때 이 메서드를 계속 불러서 칸 값을 물어봐요.")
+rule(r"Qt\.(DisplayRole|EditRole|ToolTipRole|TextAlignmentRole|BackgroundRole)", "Qt.{0}",
+     "뷰가 지금 무엇을 물어보는지(표시할 글자, 편집 값, 툴팁…)를 나타내는 역할(role) 값이에요.",
+     "", "모르는 role 이면 QVariant() / None 을 돌려줘야 빈 값으로 처리돼요.")
+rule(r"\.setModel\(", ".setModel()", "뷰(QTableView, QListView)에 데이터를 가진 모델을 연결해요.",
+     "데이터(모델)와 화면(뷰)을 나눠 두면, 모델만 바꿔도 화면이 따라 바뀌어요.")
+rule(r"QListWidgetItem\(", "QListWidgetItem()", "리스트에 넣을 항목 하나를 만들어요. 글자·아이콘·체크 상태를 따로 정할 수 있어요.")
+rule(r"QPixmap\.fromImage\(", "QPixmap.fromImage()", "QImage(계산·변환용 그림)를 화면 표시용 QPixmap으로 바꿔요.")
+rule(r"\.quit\(\)", ".quit()", "이벤트 루프(앱 또는 스레드)를 끝내라고 알려요.")
+rule(r"QApplication\.processEvents\(\)", "QApplication.processEvents()",
+     "긴 반복문 중간에 쌓인 화면 갱신·클릭을 잠깐 처리해요.", "",
+     "임시방편이에요. 오래 걸리는 일은 QThread나 QTimer로 나누는 게 좋아요.")
+rule(r"self\.(\w+)\s*=\s*\[\s*\]", "self.{0} = []", "빈 리스트를 만들어 self.{0} 에 담아 둬요.",
+     "self. 에 담으면 다른 메서드에서도 같은 리스트를 계속 쓸 수 있어요.")
+rule(r"^\s*self\.(?!close\b|show\b|hide\b|update\b|accept\b|reject\b|setupUi\b)(\w+)\(\)\s*$", "self.{0}()",
+     "이 클래스에 있는 {0}() 메서드를 불러서 실행해요.",
+     "같은 일을 여러 곳에서 해야 할 때, 메서드로 만들어 두고 이렇게 불러 써요.")
+rule(r"^\s*from PyQt5 import (uic)", "from PyQt5 import uic",
+     ".ui 파일을 다루는 uic 모듈을 가져와요.", "uic.loadUi / uic.loadUiType 으로 .ui를 변환 없이 바로 쓸 수 있어요.")
+rule(r"\w+\.open\(\)", ".open()", "대화상자를 띄우되, exec_() 와 달리 닫힐 때까지 기다리지 않고 다음 줄로 넘어가요.",
+     "결과는 finished / accepted 시그널로 받아요.")
+rule(r"QApplication\.exit\(", "QApplication.exit()", "앱의 이벤트 루프를 끝내서 프로그램을 종료해요.")
+rule(r"\bnot in\b", "not in", "목록(리스트·문자열·딕셔너리)에 그 값이 없으면 True예요.")
+rule(r"re\.(match|search|fullmatch|findall|sub)\(", "re.{0}()", "정규식(글자 패턴)으로 문자열을 검사하거나 찾아요.")
 
 # --- main block --------------------------------------------------------------------
 rule(r"if __name__ == ['\"]__main__['\"]", "if __name__ == '__main__':",

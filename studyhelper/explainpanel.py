@@ -3,17 +3,18 @@ from html import escape
 
 from PyQt5.QtCore import Qt, QTimer, QUrl, pyqtSignal
 from PyQt5.QtGui import QDesktopServices
-from PyQt5.QtWidgets import (QMenu, QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
+from PyQt5.QtWidgets import (QMenu, QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog,
                              QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton,
                              QTextBrowser, QVBoxLayout, QWidget)
 
 import re
 
 from . import ai, explain, notes, theme
+from .theme import ThemedBrowser, ThemedLabel
 
 
 # ------------------------------------------------------------- line explainer
-class LineExplainView(QTextBrowser):
+class LineExplainView(ThemedBrowser):
     def __init__(self):
         super().__init__()
         self.setOpenLinks(False)
@@ -66,7 +67,7 @@ class AiSettingsDialog(QDialog):
         self.setWindowTitle("AI 해설 설정")
         self.setMinimumWidth(600)
         lay = QVBoxLayout(self)
-        lay.addWidget(QLabel("<b>1. 쓸 AI 모델 고르기</b> "
+        lay.addWidget(ThemedLabel("<b>1. 쓸 AI 모델 고르기</b> "
                              "<span style='color:#888'>(목록에 없는 최신 모델 이름은 직접 입력해도 돼요)</span>"))
         self.model = QComboBox()
         self.model.setEditable(True)
@@ -75,13 +76,13 @@ class AiSettingsDialog(QDialog):
         self.model.currentIndexChanged.connect(lambda _: self._on_model())
         self.model.lineEdit().editingFinished.connect(self._on_model)
         lay.addWidget(self.model)
-        self.free_note = QLabel()
+        self.free_note = ThemedLabel()
         self.free_note.setWordWrap(True)
         self.free_note.setOpenExternalLinks(True)
         lay.addWidget(self.free_note)
 
         lay.addSpacing(8)
-        self.key_title = QLabel()
+        self.key_title = ThemedLabel()
         lay.addWidget(self.key_title)
         self.login_btn = QPushButton("Claude Code 로그인 창 열기")
         self.login_btn.setToolTip("처음 한 번만 로그인하면 돼요. 로그인을 마친 뒤 [연결 테스트]를 눌러 주세요")
@@ -103,7 +104,7 @@ class AiSettingsDialog(QDialog):
         paste.clicked.connect(lambda: self.key.setText(QApplication.clipboard().text().strip()))
         row.addWidget(paste)
         lay.addWidget(self.key_row)
-        self.key_help = QLabel()
+        self.key_help = ThemedLabel()
         self.key_help.setWordWrap(True)
         self.key_help.setOpenExternalLinks(True)
         lay.addWidget(self.key_help)
@@ -112,7 +113,7 @@ class AiSettingsDialog(QDialog):
         self.test_btn = QPushButton("연결 테스트")
         self.test_btn.clicked.connect(self._test)
         test_row.addWidget(self.test_btn)
-        self.result = QLabel("")
+        self.result = ThemedLabel("")
         self.result.setWordWrap(True)
         test_row.addWidget(self.result, 1)
         lay.addLayout(test_row)
@@ -291,13 +292,19 @@ class AiPanel(QWidget):
         self.b_code.clicked.connect(self._copy_code)
         self.b_code.setVisible(False)
         top2.addWidget(self.b_code)
+        self.b_save = QPushButton("대화 저장")
+        self.b_save.setToolTip("지금까지의 AI 대화를 .md 파일로 저장해요 (내 노트 폴더에 저장해도 돼요)")
+        self.b_save.clicked.connect(self.save_conversation)
+        self.b_save.setVisible(False)
+        top2.addWidget(self.b_save)
+        self.save_dir = ""                       # set by the main window: the open file's folder
         top2.addStretch(1)
         top.addStretch(1)
         top.addWidget(self.b_model)
         lay.addLayout(top)
         lay.addLayout(top2)
 
-        self.view = QTextBrowser()
+        self.view = ThemedBrowser()
         self.view.setOpenExternalLinks(True)
         lay.addWidget(self.view, 1)
 
@@ -381,8 +388,32 @@ class AiPanel(QWidget):
         if picked is not None:
             self._copy_own(picked.data())
 
+    def conversation_text(self) -> str:
+        return (self.transcript + self.current).strip()
+
+    def save_conversation(self, path=None):
+        text = self.conversation_text()
+        if not text:
+            return None
+        if not path:
+            from datetime import datetime
+            from pathlib import Path
+            base = Path(self.save_dir) if self.save_dir and Path(self.save_dir).is_dir() else Path.home()
+            default = str(base / f"AI해설_{datetime.now():%Y%m%d_%H%M}.md")
+            path, _ = QFileDialog.getSaveFileName(self, "AI 대화 저장", default, "Markdown (*.md);;텍스트 (*.txt)")
+            if not path:
+                return None
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(text + "\n")
+        except OSError as e:
+            QMessageBox.warning(self, "저장 실패", str(e))
+            return None
+        return path
+
     def _render(self):
         self.b_code.setVisible(bool(self.code_blocks()))
+        self.b_save.setVisible(bool(self.conversation_text()))
         self.view.setMarkdown(self.transcript + self.current)
         sb = self.view.verticalScrollBar()
         sb.setValue(sb.maximum())

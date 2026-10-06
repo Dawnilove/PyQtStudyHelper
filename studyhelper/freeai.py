@@ -12,6 +12,7 @@ from PyQt5.QtWidgets import (QApplication, QDialog, QHBoxLayout, QLabel, QLineEd
                              QVBoxLayout)
 
 from . import ai
+from .theme import ThemedLabel
 
 GEMINI_KEY = re.compile(r"AIza[0-9A-Za-z_\-]{35}")
 FREE_MODEL = "gemini-3.8-flash"
@@ -63,7 +64,7 @@ class FreeAiDialog(QDialog):
         row.addWidget(b_paste)
         lay.addLayout(row)
 
-        self.status = QLabel("<span style='color:#888'>키를 복사하면 여기에 결과가 나와요…</span>")
+        self.status = ThemedLabel("<span style='color:#888'>키를 복사하면 여기에 결과가 나와요…</span>")
         self.status.setWordWrap(True)
         lay.addWidget(self.status)
         lay.addWidget(self._label(
@@ -81,7 +82,7 @@ class FreeAiDialog(QDialog):
 
     @staticmethod
     def _label(html):
-        lab = QLabel(html)
+        lab = ThemedLabel(html)
         lab.setWordWrap(True)
         lab.setTextFormat(Qt.RichText)
         return lab

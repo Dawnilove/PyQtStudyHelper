@@ -4,6 +4,7 @@ from PyQt5.QtWidgets import (QDialog, QDialogButtonBox, QLabel, QLineEdit, QPlai
                              QVBoxLayout)
 
 from . import codegen
+from .theme import ThemedLabel
 
 
 class SignalInsertDialog(QDialog):
@@ -20,17 +21,17 @@ class SignalInsertDialog(QDialog):
         what = (f"<b>{widget}</b> 의 <b>{signal}</b> 시그널이 생기면 실행할 함수(슬롯)를 만들어요.<br>"
                 + (f"이 시그널은 값 <b>{', '.join(f'{p} ({t})' for p, t in zip(params, args))}</b> 를 넘겨줘서 "
                    "함수가 받을 자리를 만들어 둘게요." if args else "이 시그널은 값을 넘겨주지 않아요."))
-        info = QLabel(what)
+        info = ThemedLabel(what)
         info.setWordWrap(True)
         lay.addWidget(info)
-        lay.addWidget(QLabel("슬롯 함수 이름"))
+        lay.addWidget(ThemedLabel("슬롯 함수 이름"))
         self.name = QLineEdit(codegen.default_slot_name(widget, signal))
         self.name.textChanged.connect(self._update)
         lay.addWidget(self.name)
-        self.msg = QLabel()
+        self.msg = ThemedLabel()
         self.msg.setWordWrap(True)
         lay.addWidget(self.msg)
-        lay.addWidget(QLabel("Main.py에 들어갈 코드 (넣은 뒤 Ctrl+Z로 한 번에 되돌릴 수 있어요)"))
+        lay.addWidget(ThemedLabel("Main.py에 들어갈 코드 (넣은 뒤 Ctrl+Z로 한 번에 되돌릴 수 있어요)"))
         self.preview = QPlainTextEdit()
         self.preview.setReadOnly(True)
         f = QFont("Consolas", 10)

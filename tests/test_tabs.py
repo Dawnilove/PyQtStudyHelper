@@ -7,7 +7,7 @@ from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt5.QtCore import QEvent, QObject, QSettings, pyqtSignal      # noqa: E402
+from PyQt5.QtCore import QEvent, QObject, QProcess, QSettings, pyqtSignal      # noqa: E402
 from PyQt5.QtTest import QTest                                      # noqa: E402
 from PyQt5.QtWidgets import QApplication, QMessageBox               # noqa: E402
 
@@ -24,7 +24,8 @@ class _NoWorker(QObject):
         pass
 
 
-class TabTests(unittest.TestCase):
+class WindowCase(unittest.TestCase):
+    """A MainWindow with two small files a.py / b.py; settings and backups in a temp folder."""
     @classmethod
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
@@ -47,8 +48,8 @@ class TabTests(unittest.TestCase):
         self.w = mw.MainWindow()
         self.addCleanup(self.destroy)
 
-    def destroy(self):
-        w = self.w
+    def destroy(self, w=None):
+        w = w or self.w
         for _ in range(100):
             if not w.scanner.busy:
                 break
@@ -59,6 +60,12 @@ class TabTests(unittest.TestCase):
         w.deleteLater()
         QApplication.sendPostedEvents(None, QEvent.DeferredDelete)
 
+    def second_window(self):
+        """Another window on the same settings (like starting the app again)."""
+        w2 = mw.MainWindow()
+        self.addCleanup(self.destroy, w2)
+        return w2
+
     def make(self, name, text):
         p = self.root / name
         p.write_text(text, encoding="utf-8")
@@ -67,6 +74,7 @@ class TabTests(unittest.TestCase):
     def names(self):
         return [self.w.file_tabs.tabText(i) for i in range(self.w.file_tabs.count())]
 
+class TabTests(WindowCase):
     def test_each_opened_file_gets_a_tab_once(self):
         self.w.open_path(self.a)
         self.w.open_path(self.b)
@@ -116,6 +124,14 @@ class TabTests(unittest.TestCase):
         self.assertEqual(self.w.stack.currentIndex(), 0)
         self.assertFalse(self.w.file_tabs.isVisible())
 
+    def test_the_x_button_closes_its_own_tab(self):
+        from PyQt5.QtWidgets import QTabBar
+        self.w.open_path(self.a)
+        self.w.open_path(self.b)
+        self.w.file_tabs.tabButton(0, QTabBar.RightSide).click()
+        self.assertEqual(self.names(), ["b.py"])
+        self.assertEqual(self.w.py_path.name, "b.py")
+
     def test_quitting_asks_about_background_tabs_too(self):
         self.w.open_path(self.a)
         self.w.editor.setPlainText("x\n")
@@ -128,11 +144,8 @@ class TabTests(unittest.TestCase):
             self.assertTrue(self.w._confirm_all())
 
 
-if __name__ == "__main__":
-    unittest.main()
 
-
-class ThemeTests(TabTests):
+class ThemeTests(WindowCase):
     """Dark theme: switches colours everywhere, is remembered, and the .ui preview stays light."""
 
     def test_toggle_changes_colours_and_is_remembered(self):
@@ -150,3 +163,92 @@ class ThemeTests(TabTests):
         self.w.toggle_dark()
         self.assertFalse(theme.dark)
         self.assertEqual(self.w.editor.highlighter.KW.foreground().color().name(), light_kw)
+
+    def test_rich_text_colours_follow_the_theme(self):
+        from studyhelper import theme
+        self.addCleanup(theme.apply, QApplication.instance(), False)
+        lab = theme.ThemedLabel("<span style='color:#888'>안내</span> <span style='background:#ffd666;color:#5c3c00'>칩</span>")
+        self.assertIn("color:#888", lab.text())
+        theme.apply(QApplication.instance(), True)
+        lab.retheme()
+        self.assertIn("color:#9aa0a8", lab.text())                 # muted grey made lighter
+        self.assertIn("color:#5c3c00", lab.text())                 # chip text keeps its own light background
+        self.assertEqual(theme.fg("#c0392b"), "#ff8787")
+        theme.apply(QApplication.instance(), False)
+        lab.retheme()
+        self.assertIn("color:#888", lab.text())
+        self.assertEqual(theme.fg("#c0392b"), "#c0392b")
+
+
+class SessionTests(WindowCase):
+    """The tabs open at closing time come back next start."""
+
+    def test_tabs_come_back(self):
+        self.w.open_path(self.a)
+        self.w.open_path(self.b)
+        self.w.open_path(self.a)                      # a.py was the one shown
+        self.w.close()
+        w2 = self.second_window()
+        self.assertTrue(w2.restore_session())
+        self.assertEqual([w2.file_tabs.tabText(i) for i in range(w2.file_tabs.count())], ["a.py", "b.py"])
+        self.assertEqual(w2.py_path.name, "a.py")
+
+    def test_missing_files_are_skipped_and_nothing_means_start_screen(self):
+        self.w.open_path(self.b)
+        self.w.close()
+        os.remove(self.b)
+        w2 = self.second_window()
+        self.assertFalse(w2.restore_session())
+        self.assertEqual(w2.stack.currentIndex(), 0)
+
+
+class RunInputTests(WindowCase):
+    """input() in the student's program gets what is typed in the 입력 box."""
+
+    def wait_done(self, ms=15000):
+        waited = 0
+        while self.w.proc and self.w.proc.state() != QProcess.NotRunning and waited < ms:
+            QTest.qWait(50)
+            waited += 50
+
+    def test_typed_line_reaches_input(self):
+        f = self.make("ask.py", "name = input('이름? ')\nprint('안녕', name)\n")
+        self.w.open_path(f)
+        self.assertFalse(self.w.stdin_edit.isEnabled())
+        self.w.run()
+        self.assertTrue(self.w.stdin_edit.isEnabled())
+        self.w.stdin_edit.setText("민수")
+        self.w.send_input()
+        self.wait_done()
+        out = self.w.output.toPlainText()
+        self.assertIn("안녕 민수", out)
+        self.assertIn("[종료 코드 0]", out)
+        self.assertFalse(self.w.stdin_edit.isEnabled())
+
+    def test_clear_button_empties_the_output(self):
+        self.w.open_path(self.a)
+        self.w.run()
+        self.wait_done()
+        self.assertIn("A", self.w.output.toPlainText())
+        self.w.b_clear_out.click()
+        self.assertEqual(self.w.output.toPlainText(), "")
+
+
+class SaveConversationTests(WindowCase):
+    def test_conversation_is_saved_as_markdown(self):
+        panel = self.w.ai_panel
+        self.assertTrue(panel.b_save.isHidden())
+        panel.transcript = "## 🧑 질문\n\n**🤖 AI**\n\n답이에요.\n"
+        panel._render()
+        self.assertFalse(panel.b_save.isHidden())
+        out = self.root / "talk.md"
+        self.assertEqual(panel.save_conversation(str(out)), str(out))
+        self.assertIn("답이에요.", out.read_text(encoding="utf-8"))
+
+    def test_default_folder_is_the_open_files_folder(self):
+        self.w.open_path(self.a)
+        self.assertEqual(self.w.ai_panel.save_dir, str(Path(self.a).parent))
+
+
+if __name__ == "__main__":
+    unittest.main()

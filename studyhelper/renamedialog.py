@@ -6,6 +6,8 @@ from PyQt5.QtGui import QFont
 from PyQt5.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox, QLabel, QLineEdit,
                              QPlainTextEdit, QVBoxLayout)
 
+from .theme import ThemedLabel
+
 
 def plan_py_rename(src: str, old: str, new: str, is_top: bool, allowed=None) -> tuple[str, list]:
     """(new source, [(line_no, before, after)]) — renames self.old, and Ui_old for the top widget.
@@ -38,19 +40,19 @@ class RenameDialog(QDialog):
         self.setWindowTitle("objectName 바꾸기")
         self.setMinimumWidth(640)
         lay = QVBoxLayout(self)
-        intro = QLabel(f"<b>{old}</b> ({cls}) 의 이름을 바꿔요. "
+        intro = ThemedLabel(f"<b>{old}</b> ({cls}) 의 이름을 바꿔요. "
                        ".ui 파일과 Main.py의 <code>self." + old + "</code> 를 <b>한꺼번에</b> 바꿔서 짝이 깨지지 않게 해요.")
         intro.setWordWrap(True)
         lay.addWidget(intro)
-        lay.addWidget(QLabel("새 이름"))
+        lay.addWidget(ThemedLabel("새 이름"))
         self.name = QLineEdit(old)
         self.name.selectAll()
         self.name.textChanged.connect(self._update)
         lay.addWidget(self.name)
-        self.msg = QLabel()
+        self.msg = ThemedLabel()
         self.msg.setWordWrap(True)
         lay.addWidget(self.msg)
-        lay.addWidget(QLabel("Main.py에서 바뀌는 줄"))
+        lay.addWidget(ThemedLabel("Main.py에서 바뀌는 줄"))
         self.preview = QPlainTextEdit()
         self.preview.setReadOnly(True)
         self.preview.setFont(QFont("Consolas", 10))
@@ -59,7 +61,7 @@ class RenameDialog(QDialog):
         self.save_py = QCheckBox("Main.py도 바로 저장 (권장: .ui는 바로 저장되니까 둘이 어긋나지 않게)")
         self.save_py.setChecked(True)
         lay.addWidget(self.save_py)
-        tip = QLabel("<span style='color:#888'>이름 짓기 팁: 종류를 앞에 붙이면 코드에서 알아보기 쉬워요 — "
+        tip = ThemedLabel("<span style='color:#888'>이름 짓기 팁: 종류를 앞에 붙이면 코드에서 알아보기 쉬워요 — "
                      "btnSave(버튼), lblResult(라벨), lineName(입력칸), chkAgree(체크박스)</span>")
         tip.setWordWrap(True)
         lay.addWidget(tip)

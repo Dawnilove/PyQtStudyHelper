@@ -9,6 +9,7 @@ from PyQt5.QtWidgets import (QHeaderView, QLabel, QListWidget, QListWidgetItem, 
 
 from . import codeview, notes, theme
 from .ui_model import editable_value
+from .theme import ThemedBrowser, ThemedLabel
 
 MONO = QFont("Consolas", 10)
 MONO.setStyleHint(QFont.Monospace)
@@ -38,7 +39,7 @@ class PropertyPanel(QWidget):
         super().__init__(parent)
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
-        self.header = QLabel()
+        self.header = ThemedLabel()
         self.header.setTextFormat(Qt.RichText)
         self.header.setWordWrap(True)
         self.header.setMargin(6)
@@ -64,9 +65,9 @@ class PropertyPanel(QWidget):
         self.table.setEditTriggers(QTableWidget.DoubleClicked | QTableWidget.EditKeyPressed)
         self.table.itemChanged.connect(self._on_item_changed)
         pl.addWidget(self.table, 3)
-        hint = QLabel("<span style='color:#888'>흰 칸 값은 더블클릭해서 고칠 수 있어요 → .ui에 바로 저장</span>")
+        hint = ThemedLabel("<span style='color:#888'>흰 칸 값은 더블클릭해서 고칠 수 있어요 → .ui에 바로 저장</span>")
         pl.addWidget(hint)
-        pl.addWidget(QLabel("Main.py에서 쓰는 곳 (더블클릭하면 이동)"))
+        pl.addWidget(ThemedLabel("Main.py에서 쓰는 곳 (더블클릭하면 이동)"))
         self.uses = QListWidget()
         self.uses.setFont(MONO)
         self.uses.itemDoubleClicked.connect(lambda it: self.lineRequested.emit(it.data(Qt.UserRole)))
@@ -86,7 +87,7 @@ class PropertyPanel(QWidget):
         sl.addWidget(self.b_insert)
         self.tabs.addTab(sp, "시그널")
 
-        self.code = QTextBrowser()
+        self.code = ThemedBrowser()
         self.tabs.addTab(self.code, "코드로 보기")
 
         self.xml = QPlainTextEdit()

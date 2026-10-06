@@ -8,6 +8,7 @@ from PyQt5.QtWidgets import (QDialog, QHBoxLayout, QLabel, QListWidget, QListWid
 
 from .preview import PreviewPane
 from .ui_model import UiModel
+from .theme import ThemedLabel
 
 SKIP = {"QWidget", "QMenuBar", "QStatusBar"}          # always generated / plumbing
 TEXT_PROPS = ("text", "title", "windowTitle", "placeholderText")
@@ -108,7 +109,7 @@ class ChallengeWindow(QDialog):
         self.setWindowTitle(f"도전: {self.target_path.parent.name}/{self.target_path.name} 따라 만들기")
         self.resize(1000, 560)
         lay = QVBoxLayout(self)
-        info = QLabel("왼쪽 <b>목표 화면</b>을 Qt Designer로 똑같이 만들어 보세요. "
+        info = ThemedLabel("왼쪽 <b>목표 화면</b>을 Qt Designer로 똑같이 만들어 보세요. "
                       "Designer에서 <b>저장할 때마다</b> 오른쪽 체크리스트가 자동으로 채점돼요.")
         info.setWordWrap(True)
         lay.addWidget(info)
@@ -118,13 +119,13 @@ class ChallengeWindow(QDialog):
         left = QWidget()
         ll = QVBoxLayout(left)
         ll.setContentsMargins(0, 0, 0, 0)
-        ll.addWidget(QLabel("<b>목표 화면</b>"))
+        ll.addWidget(ThemedLabel("<b>목표 화면</b>"))
         ll.addWidget(self.preview, 1)
         sp.addWidget(left)
         right = QWidget()
         rl = QVBoxLayout(right)
         rl.setContentsMargins(0, 0, 0, 0)
-        self.mine_label = QLabel()
+        self.mine_label = ThemedLabel()
         self.mine_label.setWordWrap(True)
         rl.addWidget(self.mine_label)
         self.bar = QProgressBar()

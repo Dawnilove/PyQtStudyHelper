@@ -12,10 +12,10 @@ from PyQt5.QtCore import (QFileSystemWatcher, QProcess, QProcessEnvironment, QSe
 from PyQt5.QtCore import QUrl
 from PyQt5.QtGui import QColor, QDesktopServices, QFont, QIcon, QKeySequence, QPainter, QTextCursor
 from PyQt5.QtCore import pyqtSignal
-from PyQt5.QtWidgets import (QAction, QApplication, QComboBox, QDialog, QFileDialog, QLabel, QListWidget, QListWidgetItem,
+from PyQt5.QtWidgets import (QAction, QApplication, QComboBox, QDialog, QFileDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem,
                              QMainWindow, QMessageBox, QPlainTextEdit, QSizePolicy, QSplitter, QStyle,
                              QTabWidget, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
-                             QStackedWidget, QTabBar, QPushButton, QHBoxLayout, QTextBrowser, QMenu, QDockWidget)
+                             QStackedWidget, QTabBar, QToolButton, QPushButton, QHBoxLayout, QTextBrowser, QMenu, QDockWidget)
 
 from . import ai, checker, codeview, errors, notes
 from .challenge import ChallengeWindow
@@ -33,6 +33,7 @@ from .props import PropertyPanel
 from .studyfolders import (MainFilesScanner, StudyFoldersDialog, existing_folders, load_folders, main_label,
                            pick_file, save_folders, start_dir)
 from .ui_model import UiModel
+from .theme import ThemedLabel
 
 
 def find_designer() -> str | None:
@@ -111,7 +112,7 @@ def _titled(title: str, widget: QWidget) -> QWidget:
     lay = QVBoxLayout(box)
     lay.setContentsMargins(0, 0, 0, 0)
     lay.setSpacing(2)
-    lab = QLabel(f"<b>{title}</b>")
+    lab = ThemedLabel(f"<b>{title}</b>")
     lab.setObjectName("paneTitle")
     lab.setMargin(4)
     lab.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)  # long paths must not widen the pane
@@ -168,7 +169,7 @@ class MainWindow(QMainWindow):
         bar.setObjectName("tips")
         lay = QHBoxLayout(bar)
         lay.setContentsMargins(10, 4, 6, 4)
-        lab = QLabel("<b>처음이세요?</b> &nbsp; ① 코드의 <span style='color:#0b6bcb'><u>파란 이름</u></span>에 마우스를 올려 보세요 "
+        lab = ThemedLabel("<b>처음이세요?</b> &nbsp; ① 코드의 <span style='color:#0b6bcb'><u>파란 이름</u></span>에 마우스를 올려 보세요 "
                      "&nbsp; ② 궁금한 줄을 클릭하면 해설이 나와요 &nbsp; ③ <b>F5</b>로 실행 &nbsp; ④ 막히면 <b>F1</b>(사용법)")
         lab.setWordWrap(True)
         lab.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Minimum)
@@ -274,7 +275,7 @@ class MainWindow(QMainWindow):
         tb.addAction(self.a_open)
         tb.addAction(self.a_save)
         tb.addSeparator()
-        tb.addWidget(QLabel(" UI 파일 "))
+        tb.addWidget(ThemedLabel(" UI 파일 "))
         self.ui_combo = QComboBox()
         self.ui_combo.setMinimumWidth(160)
         self.ui_combo.setToolTip("이 파이썬 파일이 쓰는 .ui (자동으로 찾아요). 여러 개면 여기서 바꿔요")
@@ -334,8 +335,32 @@ class MainWindow(QMainWindow):
         self.output.frameClicked.connect(self._on_frame_clicked)
         self.issue_list = QListWidget()
         self.issue_list.itemClicked.connect(self._on_issue_clicked)
+        # input() support: what the student types here goes to the running program's stdin
+        self.stdin_edit = QLineEdit()
+        self.stdin_edit.setPlaceholderText("실행 중인 프로그램의 input()에 보낼 값을 쓰고 Enter")
+        self.stdin_edit.setEnabled(False)
+        self.stdin_edit.returnPressed.connect(self.send_input)
+        self.b_send = QPushButton("보내기")
+        self.b_send.setEnabled(False)
+        self.b_send.clicked.connect(self.send_input)
+        self.b_clear_out = QPushButton("지우기")
+        self.b_clear_out.setToolTip("실행 결과 창을 비워요")
+        self.b_clear_out.clicked.connect(self.output.clear)
+        run_box = QWidget()
+        rl = QVBoxLayout(run_box)
+        rl.setContentsMargins(0, 0, 0, 0)
+        rl.setSpacing(2)
+        rl.addWidget(self.output, 1)
+        row = QHBoxLayout()
+        row.setContentsMargins(2, 0, 2, 2)
+        row.addWidget(ThemedLabel("입력:"))
+        row.addWidget(self.stdin_edit, 1)
+        row.addWidget(self.b_send)
+        row.addWidget(self.b_clear_out)
+        rl.addLayout(row)
+        self.run_box = run_box
         self.bottom = QTabWidget()
-        self.bottom.addTab(self.output, "실행 결과")
+        self.bottom.addTab(run_box, "실행 결과")
         self.bottom.addTab(self.issue_list, "검사")
 
         left = QSplitter(Qt.Vertical)
@@ -344,19 +369,18 @@ class MainWindow(QMainWindow):
         left.addWidget(_titled("위젯 트리", self.tree))
         left.setSizes([480, 300])
         self.editor_box = _titled("Main.py", self.editor)
-        self.legend = QLabel(LEGEND)
+        self.legend = ThemedLabel(LEGEND)
         self.legend.setWordWrap(True)
         self.legend.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Minimum)
         self.legend.setObjectName("legend")
         self.legend.setToolTip("<html>"+LEGEND_FULL+"<br>(보기 메뉴에서 끄고 켤 수 있어요)</html>")
         self.file_tabs = QTabBar()
         self.file_tabs.setObjectName("fileTabs")
-        self.file_tabs.setTabsClosable(True)
+        self.file_tabs.setTabsClosable(False)          # see _select_tab: own ✕ buttons
         self.file_tabs.setDocumentMode(True)
         self.file_tabs.setExpanding(False)
         self.file_tabs.setUsesScrollButtons(True)
         self.file_tabs.currentChanged.connect(self._on_tab_changed)
-        self.file_tabs.tabCloseRequested.connect(self.close_tab)
         self.file_tabs.setVisible(False)
         self._stash = {}                 # path -> {"text", "line"} for edited files that aren't the one shown
         self.editor_box.layout().insertWidget(1, self.file_tabs)
@@ -421,7 +445,7 @@ class MainWindow(QMainWindow):
         self.a_legend.setChecked(show_legend)
         self.legend.setVisible(show_legend)
 
-        self.ai_status = QLabel()
+        self.ai_status = ThemedLabel()
         self.statusBar().addPermanentWidget(self.ai_status)
         self._update_ai_status()
         self._fill_recent()
@@ -450,8 +474,8 @@ class MainWindow(QMainWindow):
         row = QHBoxLayout()
         row.addStretch(1)
         box = QVBoxLayout()
-        title = QLabel("<span style='font-size:22pt;font-weight:600'>PyQt 학습 도우미</span>")
-        sub = QLabel("Designer에서 만든 <b>.ui</b>와 내가 짠 <b>Main.py</b>를 연결해서 보며 공부해요.")
+        title = ThemedLabel("<span style='font-size:22pt;font-weight:600'>PyQt 학습 도우미</span>")
+        sub = ThemedLabel("Designer에서 만든 <b>.ui</b>와 내가 짠 <b>Main.py</b>를 연결해서 보며 공부해요.")
         sub.setStyleSheet("color:#8a8f98;font-size:11pt")
         box.addWidget(title)
         box.addWidget(sub)
@@ -461,18 +485,18 @@ class MainWindow(QMainWindow):
         btn.setObjectName("bigButton")
         btn.clicked.connect(self.open_dialog)
         box.addWidget(btn)
-        hint = QLabel("또는 Main.py / gui.ui / 실습 폴더를 이 창에 끌어다 놓으세요.")
+        hint = ThemedLabel("또는 Main.py / gui.ui / 실습 폴더를 이 창에 끌어다 놓으세요.")
         hint.setStyleSheet("color:#888")
         box.addWidget(hint)
         box.addSpacing(14)
-        box.addWidget(QLabel("<b>최근 파일</b>  <span style='color:#888'>(더블클릭)</span>"))
+        box.addWidget(ThemedLabel("<b>최근 파일</b>  <span style='color:#888'>(더블클릭)</span>"))
         self.recent_list = QListWidget()
         self.recent_list.setMinimumWidth(560)
         self.recent_list.setMaximumHeight(220)
         self.recent_list.itemActivated.connect(lambda it: self.open_path(it.data(Qt.UserRole)))
         box.addWidget(self.recent_list)
         box.addSpacing(14)
-        steps = QLabel(
+        steps = ThemedLabel(
             "<b>이렇게 써요</b><ol style='margin-left:-20px'>"
             "<li>Main.py를 열면 맞는 .ui를 자동으로 찾아 미리보기에 띄워요.</li>"
             "<li>코드의 <span style='color:#0b6bcb'><u>파란 이름</u></span>에 마우스를 올리면 화면의 위젯이 빨갛게 표시돼요.</li>"
@@ -767,7 +791,7 @@ class MainWindow(QMainWindow):
 
     def _light_preview(self):
         """The .ui preview keeps the light look it was designed with, also in the dark theme."""
-        self.preview.set_fixed_palette(QApplication.style().standardPalette())
+        self.preview.set_fixed_palette(theme.light_palette())
 
     def toggle_dark(self):
         self._dark = self.a_dark.isChecked()
@@ -777,6 +801,9 @@ class MainWindow(QMainWindow):
         self._tint_icons()
         self.editor.apply_theme()
         self.run_check()                       # re-colours the dimmed (unused) widget names
+        theme.retheme_all(self)                # labels, dialogs-in-window, browsers
+        self.explorer.refresh()
+        self.legend.setText(LEGEND)
         self.line_view._last = None
         self._on_cursor_moved()                # re-draws the 해설 panel with the new colours
         if self.sel:
@@ -983,6 +1010,7 @@ class MainWindow(QMainWindow):
         self.settings.setValue("lastFile", str(p))
         self.settings.setValue("lastDir", str(p.parent))
         self._select_tab(p)
+        self.ai_panel.save_dir = str(p.parent)
         self._update_title()
         if cands:
             self.load_ui(Path(self.ui_combo.currentData()))
@@ -999,6 +1027,22 @@ class MainWindow(QMainWindow):
         return True
 
     # ------------------------------------------------------------ file tabs
+    def restore_session(self) -> bool:
+        """Re-open the tabs that were open when the app was closed (files that still exist)."""
+        tabs = self.settings.value("session/tabs", []) or []
+        if isinstance(tabs, str):              # QSettings gives a plain str for a one-item list
+            tabs = [tabs]
+        tabs = [t for t in tabs if t and Path(t).is_file()]
+        if not tabs:
+            return False
+        for t in tabs:
+            self.open_path(t)
+        cur = self.settings.value("session/current", "")
+        if cur and cur in tabs and (not self.py_path or str(self.py_path) != cur):
+            self.open_path(cur)
+        self._status(f"지난번에 열어 둔 파일 {len(tabs)}개를 다시 열었어요.")
+        return self.py_path is not None
+
     def _tab_index(self, path) -> int:
         for i in range(self.file_tabs.count()):
             if self.file_tabs.tabData(i) == str(path):
@@ -1012,9 +1056,25 @@ class MainWindow(QMainWindow):
             i = self.file_tabs.addTab(Path(path).name)
             self.file_tabs.setTabData(i, str(path))
             self.file_tabs.setTabToolTip(i, str(path))
+            # our own ✕ (text, so it follows the theme's text colour; the built-in icon is black)
+            x = QToolButton()
+            x.setText("✕")
+            x.setAutoRaise(True)
+            x.setFixedSize(18, 18)
+            x.setStyleSheet("QToolButton { padding: 0; border: none; border-radius: 3px; } "
+                            "QToolButton:hover { background: rgba(128, 128, 128, 90); }")
+            x.setToolTip("탭 닫기")
+            x.clicked.connect(lambda _=False, b=x: self._close_tab_of(b))
+            self.file_tabs.setTabButton(i, QTabBar.RightSide, x)
         self.file_tabs.setCurrentIndex(i)
         self.file_tabs.blockSignals(False)
         self.file_tabs.setVisible(True)
+
+    def _close_tab_of(self, button):
+        for i in range(self.file_tabs.count()):
+            if self.file_tabs.tabButton(i, QTabBar.RightSide) is button:
+                self.close_tab(i)
+                return
 
     def _stash_current(self):
         """Leaving the shown file: keep its unsaved edits (so switching tabs never asks or loses work)."""
@@ -1368,7 +1428,7 @@ class MainWindow(QMainWindow):
         self._stderr = ""
         self.editor.error = None
         self.editor.set_issues(self.editor.issues)
-        self.bottom.setCurrentWidget(self.output)
+        self.bottom.setCurrentWidget(self.run_box)
         try:
             self._refresh_generated_py()
         except Exception as e:
@@ -1390,14 +1450,30 @@ class MainWindow(QMainWindow):
         self._run_py = self.py_path
         self._out(f"> python {self.py_path.name}\n", "#888888")
         proc.start(sys.executable, ["-u", str(self.py_path)])
-        proc.closeWriteChannel()        # no keyboard here: input() ends with EOFError instead of hanging
         self.a_stop.setEnabled(True)
+        self._set_input_enabled(True)
+
+    def _set_input_enabled(self, on):
+        self.stdin_edit.setEnabled(on)
+        self.b_send.setEnabled(on)
+        if not on:
+            self.stdin_edit.clear()
+
+    def send_input(self):
+        """One line typed by the student -> the running program's input()."""
+        if not (self.proc and self.proc.state() == QProcess.Running):
+            return
+        text = self.stdin_edit.text()
+        self.proc.write((text + "\n").encode("utf-8"))
+        self._out(text + "\n", "#2b8a3e")
+        self.stdin_edit.clear()
 
     def stop(self):
         if self.proc and self.proc.state() != QProcess.NotRunning:
             self.proc.kill()
             self.proc.waitForFinished(2000)
             self.a_stop.setEnabled(False)
+        self._set_input_enabled(False)
 
     def _on_stderr(self):
         text = bytes(self.proc.readAllStandardError()).decode("utf-8", "replace")
@@ -1406,6 +1482,7 @@ class MainWindow(QMainWindow):
 
     def _on_finished(self, code, _status):
         self.a_stop.setEnabled(False)
+        self._set_input_enabled(False)
         self._out(f"\n[종료 코드 {code}]\n", "#888888")
         names, _tops = self._all_ui_names()
         top = self.model.top.name if self.model and self.model.top else None
@@ -1487,12 +1564,12 @@ class MainWindow(QMainWindow):
         self.issue_list.clear()
         for x in issues:
             it = QListWidgetItem(f"{x.line + 1:>4}줄   {x.msg}")
-            it.setForeground(QColor("#c92a2a" if x.level == "error" else "#b35c00"))
+            it.setForeground(QColor(theme.fg("#c92a2a" if x.level == "error" else "#b35c00")))
             it.setData(Qt.UserRole, x.line)
             self.issue_list.addItem(it)
         if not issues:
             ok = QListWidgetItem("문제 없음 — .ui 이름과 Main.py가 잘 맞아요.")
-            ok.setForeground(QColor("#2b8a3e"))
+            ok.setForeground(QColor(theme.fg("#2b8a3e")))
             self.issue_list.addItem(ok)
         self.bottom.setTabText(1, f"검사 ({len(issues)})" if issues else "검사 ✓")
 
@@ -1527,7 +1604,7 @@ class MainWindow(QMainWindow):
         cur = self.output.textCursor()
         cur.movePosition(cur.End)
         fmt = cur.charFormat()
-        fmt.setForeground(QColor(color or theme.T["text"]))
+        fmt.setForeground(QColor(theme.fg(color) if color else theme.T["text"]))
         cur.setCharFormat(fmt)
         cur.insertText(text)
         self.output.setTextCursor(cur)
@@ -1540,6 +1617,8 @@ class MainWindow(QMainWindow):
             return
         self.stop()
         self.ai_panel.stop()
+        self.settings.setValue("session/tabs", [self.file_tabs.tabData(i) for i in range(self.file_tabs.count())])
+        self.settings.setValue("session/current", str(self.py_path) if self.py_path else "")
         if self.explorer_dock.isVisible():
             self.settings.setValue("explorer/width", self.explorer_dock.width())
         for k, s in self.splitters.items():

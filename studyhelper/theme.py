@@ -1,5 +1,19 @@
 """밝은 / 어두운 테마. One place for every colour the app picks itself (the rest follows the Qt palette)."""
+import re
+
 from PyQt5.QtGui import QColor, QPalette
+from PyQt5.QtWidgets import QLabel, QTextBrowser
+
+# Text colours written into rich text / list items for the light theme -> readable on a dark background.
+# (Chip text such as #5c3c00 sits on its own light background, so it is deliberately not here.)
+DARK_FG = {
+    "#888": "#9aa0a8", "#888888": "#9aa0a8", "#777": "#a0a6ae", "#666": "#aab0b8", "#555": "#b0b6be",
+    "#555555": "#b0b6be", "#202020": "#e6e6e6",
+    "#2b6e2b": "#8bc98b", "#2b8a3e": "#69db7c", "#c0392b": "#ff8787", "#c92a2a": "#ff8787",
+    "#e03131": "#ff6b6b", "#b35c00": "#ffa94d", "#e8890c": "#ffa94d", "#0b6bcb": "#4dabf7",
+    "#6f42c1": "#b197fc",
+}
+_FG = re.compile(r"(?<![\w-])(color\s*:\s*)(#[0-9a-fA-F]{3,6})\b")
 
 LIGHT = {
     # code editor
@@ -38,6 +52,59 @@ def set_dark(on: bool):
     T.update(DARK if dark else LIGHT)
 
 
+def fg(color: str) -> str:
+    """A text colour for the current theme (light colours pass through unchanged)."""
+    return DARK_FG.get(color.lower(), color) if dark else color
+
+
+def html(text: str) -> str:
+    """Rich text with its `color:#…` values made readable in the current theme."""
+    if not dark or not text or "color" not in text:
+        return text
+    return _FG.sub(lambda m: m.group(1) + DARK_FG.get(m.group(2).lower(), m.group(2)), text)
+
+
+class ThemedLabel(QLabel):
+    """QLabel that keeps its rich text readable in both themes (and can re-colour itself on a switch)."""
+
+    def __init__(self, *args):
+        self._raw = ""
+        if args and isinstance(args[0], str):
+            self._raw = args[0]
+            args = (html(args[0]),) + args[1:]
+        super().__init__(*args)
+
+    def setText(self, text):
+        self._raw = text
+        super().setText(html(text))
+
+    def retheme(self):
+        super().setText(html(self._raw))
+
+
+class ThemedBrowser(QTextBrowser):
+    """QTextBrowser whose setHtml() follows the theme."""
+    _raw = None
+
+    def setHtml(self, text):
+        self._raw = text
+        super().setHtml(html(text))
+
+    def setMarkdown(self, text):
+        self._raw = None                         # markdown carries no colours of its own
+        super().setMarkdown(text)
+
+    def retheme(self):
+        if self._raw is not None:
+            super().setHtml(html(self._raw))
+
+
+def retheme_all(root):
+    """After a theme switch: re-colour every themed label / browser under `root`."""
+    for w in root.findChildren(ThemedLabel) + root.findChildren(ThemedBrowser):
+        w.retheme()
+
+
 def palette(on: bool) -> QPalette:
     p = QPalette()
     if not on:
@@ -63,8 +130,19 @@ def palette(on: bool) -> QPalette:
 
 
 def light_palette() -> QPalette:
-    """The .ui preview always looks the way it was designed, whatever theme the app is in."""
-    return QPalette()
+    """The .ui preview always looks the way it was designed, whatever theme the app is in.
+
+    Every colour is set explicitly: a palette with nothing marked as set would be replaced by the
+    (dark) parent's palette as soon as the preview is put into a window.
+    """
+    from PyQt5.QtWidgets import QApplication
+    std = QApplication.style().standardPalette()
+    p = QPalette()
+    for group in (QPalette.Active, QPalette.Inactive, QPalette.Disabled):
+        for role in range(QPalette.NColorRoles):
+            r = QPalette.ColorRole(role)
+            p.setColor(group, r, std.color(group, r))
+    return p
 
 
 def stylesheet() -> str:

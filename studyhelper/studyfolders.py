@@ -8,6 +8,8 @@ from PyQt5.QtCore import QDir, QObject, QStandardPaths, Qt, QUrl, pyqtSignal
 from PyQt5.QtWidgets import (QDialog, QDialogButtonBox, QFileDialog, QHBoxLayout, QLabel, QListWidget,
                              QListWidgetItem, QPushButton, QVBoxLayout)
 
+from .theme import ThemedLabel
+
 KEY = "studyFolders"                 # QSettings key holding the list of folder paths
 MAIN_NAME = "main.py"                # compared in lower case, like locate.main_py_in does
 MAX_DEPTH = 6                        # folders below a study folder that are searched for Main files
@@ -168,7 +170,7 @@ class StudyFoldersDialog(QDialog):
         self.resize(560, 320)
         self._folders = list(folders)
         lay = QVBoxLayout(self)
-        lay.addWidget(QLabel("자주 여는 학습 폴더를 등록하면 파일 열기 창 왼쪽에 바로가기로 나와요."))
+        lay.addWidget(ThemedLabel("자주 여는 학습 폴더를 등록하면 파일 열기 창 왼쪽에 바로가기로 나와요."))
         self.view = QListWidget()
         lay.addWidget(self.view)
         row = QHBoxLayout()

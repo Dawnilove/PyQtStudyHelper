@@ -50,9 +50,12 @@ def main():
     app.setFont(font)
     w = MainWindow()
     w.show()
-    # with a file argument (dropped on the icon / launcher .bat) open it; otherwise the start screen
+    # with a file argument (dropped on the icon / launcher .bat) open it; otherwise the tabs of last time
+    # (or the start screen when there were none)
     if len(sys.argv) > 1 and Path(sys.argv[1]).exists():
         w.open_path(sys.argv[1])
+    else:
+        w.restore_session()
     sys.exit(app.exec_())
 
 

@@ -10,6 +10,9 @@ from PyQt5.QtGui import QColor, QPainter, QPen
 from PyQt5.QtWidgets import (QLabel, QLayout, QScrollArea, QScrollBar, QTabBar, QVBoxLayout,
                              QWidget)
 
+from . import theme
+
+
 def sanitized_ui(ui_path) -> bytes:
     """The .ui as the preview needs it — nothing that would import or call the student's code.
 
@@ -90,6 +93,14 @@ class PreviewPane(QScrollArea):
         self.names: set[str] = set()
         self._sel = None
         self._palette = None
+        # a .ui always looks the way it was designed (light), also when the app uses the dark theme
+        self.set_fixed_palette(theme.light_palette())
+
+    def showEvent(self, e):
+        # being put into a (dark) window can hand the inner widgets the window's palette again
+        if self._palette is not None:
+            self.set_fixed_palette(self._palette)
+        super().showEvent(e)
 
     def set_fixed_palette(self, pal):
         """Give the preview its own colours (so a dark app theme doesn't change how the .ui looks)."""

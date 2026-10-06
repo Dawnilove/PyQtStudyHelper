@@ -13,6 +13,8 @@ from PyQt5.QtWidgets import (QHBoxLayout, QLabel, QPushButton, QStyle, QTreeWidg
                              QVBoxLayout, QWidget)
 
 from .studyfolders import SKIP_DIRS
+from . import theme
+from .theme import ThemedLabel
 
 SHOWN_SUFFIXES = {".py", ".ui"}
 MAX_ENTRIES = 400                  # per folder; a folder with thousands of files must not freeze the app
@@ -74,7 +76,7 @@ class ExplorerPanel(QWidget):
 
         head = QHBoxLayout()
         head.setContentsMargins(6, 4, 4, 4)
-        self.title = QLabel()
+        self.title = ThemedLabel()
         self.title.setObjectName("explorerTitle")
         head.addWidget(self.title, 1)
         self.b_manage = QPushButton()
@@ -100,7 +102,7 @@ class ExplorerPanel(QWidget):
         self.tree.itemExpanded.connect(self._on_expanded)
         lay.addWidget(self.tree, 1)
 
-        self.hint = QLabel()
+        self.hint = ThemedLabel()
         self.hint.setWordWrap(True)
         self.hint.setObjectName("explorerHint")
         self.hint.setMargin(6)
@@ -170,7 +172,7 @@ class ExplorerPanel(QWidget):
         it.setIcon(0, self._icon("file"))
         it.setToolTip(0, path)
         if Path(path).suffix.lower() == ".ui":
-            it.setForeground(0, QColor("#6f42c1"))
+            it.setForeground(0, QColor(theme.fg("#6f42c1")))
         elif Path(path).name.lower() == "main.py":
             f = it.font(0)
             f.setBold(True)
