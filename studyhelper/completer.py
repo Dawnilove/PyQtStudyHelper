@@ -17,6 +17,7 @@ _QT_MODULES = ("QtWidgets", "QtGui", "QtCore")
 _WORD_END = re.compile(r"\w*$")
 _SELF_ATTR = re.compile(r"\bself\.\w*$")
 _SELF_WIDGET_MEMBER = re.compile(r"\bself\.(\w+)\.\w*$")
+_QT_ENUM = re.compile(r"\bQt\.\w*$")                  # Qt.AlignCenter, QtCore.Qt.Horizontal ...
 _WORD = re.compile(r"[A-Za-z_]\w*")
 
 _JEDI_KINDS = {"module": "모듈", "class": "클래스", "function": "함수", "instance": "변수",
@@ -69,6 +70,14 @@ def qt_members(cls_name: str) -> tuple:
     return tuple(signals + methods)
 
 
+@lru_cache(maxsize=None)
+def qt_constants() -> tuple:
+    """Enum constants of ``Qt`` (AlignCenter, ...). PyQt5 5.15.11 stubs hide them from jedi, so read them at runtime."""
+    from PyQt5 import QtCore
+    return tuple(Item(n, "상수") for n in dir(QtCore.Qt)
+                 if not n.startswith("_") and not callable(getattr(QtCore.Qt, n, None)))
+
+
 class Completer:
     def __init__(self, use_jedi: bool = True):
         self._jedi = None
@@ -111,6 +120,8 @@ class Completer:
             items += self._filter(qt_members(self.widgets[member.group(1)]), prefix)
         elif _SELF_ATTR.search(before):
             items += self._filter((Item(n, "위젯") for n in sorted(self.widgets)), prefix)
+        elif _QT_ENUM.search(before):
+            items += self._filter(qt_constants(), prefix)
         if not items:
             if self._jedi:
                 items += self._jedi_items(source, line, col, prefix)
