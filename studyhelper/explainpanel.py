@@ -10,7 +10,7 @@ from PyQt5.QtWidgets import (QMenu, QApplication, QCheckBox, QComboBox, QDialog,
 import re
 
 from . import ai, explain, notes, theme
-from .theme import ThemedBrowser, ThemedLabel
+from .theme import ThemedBrowser, ThemedLabel, chrome
 
 
 # ------------------------------------------------------------- line explainer
@@ -64,6 +64,7 @@ class LineExplainView(ThemedBrowser):
 class AiSettingsDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
+        chrome(self)                           # the app look for this dialog
         self.setWindowTitle("AI 해설 설정")
         self.setMinimumWidth(600)
         lay = QVBoxLayout(self)
@@ -266,8 +267,7 @@ class AiPanel(QWidget):
         self.b_stop.setEnabled(False)
         self.b_stop.clicked.connect(self.stop)
         self.b_free = QPushButton("무료 AI 켜기")
-        self.b_free.setStyleSheet("QPushButton { background:#2f6fd0; color:white; border:none; "
-                                  "border-radius:4px; padding:4px 10px; } QPushButton:hover { background:#255db3; }")
+        self.b_free.setObjectName("primary")
         self.b_free.setToolTip("구글 계정만 있으면 무료. 키를 한 번만 연결하면 답이 도우미 안에 바로 나와요")
         self.b_free.clicked.connect(self.freeAiRequested)
         self.b_model = QPushButton()

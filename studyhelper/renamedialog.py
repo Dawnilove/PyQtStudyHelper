@@ -6,7 +6,7 @@ from PyQt5.QtGui import QFont
 from PyQt5.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox, QLabel, QLineEdit,
                              QPlainTextEdit, QVBoxLayout)
 
-from .theme import ThemedLabel
+from .theme import ThemedLabel, chrome
 
 
 def plan_py_rename(src: str, old: str, new: str, is_top: bool, allowed=None) -> tuple[str, list]:
@@ -34,6 +34,7 @@ def plan_py_rename(src: str, old: str, new: str, is_top: bool, allowed=None) -> 
 class RenameDialog(QDialog):
     def __init__(self, old, cls, names, src, is_top, parent=None, allowed=None):
         super().__init__(parent)
+        chrome(self)                           # the app look for this dialog
         self.old, self.names, self.src, self.is_top = old, set(names), src, is_top
         self.allowed = allowed
         self.new_src, self.changes = src, []

@@ -130,8 +130,7 @@ class _KindDelegate(QStyledItemDelegate):
     def paint(self, painter, option, index):
         super().paint(painter, option, index)
         painter.save()
-        selected = bool(option.state & QStyle.State_Selected)
-        painter.setPen(QColor("#dbe7ff" if selected else "#8c8c8c"))
+        painter.setPen(QColor(theme.T["muted"]))
         painter.drawText(option.rect.adjusted(8, 0, -8, 0), Qt.AlignRight | Qt.AlignVCenter,
                          index.data(_KIND_ROLE) or "")
         painter.restore()

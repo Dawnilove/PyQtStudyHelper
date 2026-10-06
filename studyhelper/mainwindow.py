@@ -7,7 +7,7 @@ from html import escape
 from pathlib import Path
 
 from PyQt5 import uic
-from PyQt5.QtCore import (QFileSystemWatcher, QProcess, QProcessEnvironment, QSettings, Qt,
+from PyQt5.QtCore import (QFileSystemWatcher, QProcess, QProcessEnvironment, QSettings, QSize, Qt,
                           QTimer)
 from PyQt5.QtCore import QUrl
 from PyQt5.QtGui import QColor, QDesktopServices, QFont, QIcon, QKeySequence, QPainter, QTextCursor
@@ -24,7 +24,7 @@ from .renamedialog import RenameDialog
 from .signaldialog import SignalInsertDialog
 from .ui_model import rename_object, set_property
 from .explainpanel import AiPanel, AiSettingsDialog, LineExplainView
-from . import recovery, theme
+from . import icons, recovery, theme
 from .findbar import FindBar
 from .editor import CodeEditor
 from .locate import class_ui_ranges, import_mismatch, main_py_in, py_for_ui, read_text, ui_candidates
@@ -111,7 +111,7 @@ def _titled(title: str, widget: QWidget) -> QWidget:
     box = QWidget()
     lay = QVBoxLayout(box)
     lay.setContentsMargins(0, 0, 0, 0)
-    lay.setSpacing(2)
+    lay.setSpacing(0)
     lab = ThemedLabel(f"<b>{title}</b>")
     lab.setObjectName("paneTitle")
     lab.setMargin(4)
@@ -152,7 +152,8 @@ class MainWindow(QMainWindow):
         self._build_ui()
         self.a_dark.setChecked(self._dark)
         self._light_preview()
-        self._tint_icons()
+        self._apply_icons()
+        self._chrome()
         self.watcher = QFileSystemWatcher(self)
         self.watcher.fileChanged.connect(self._on_file_changed)
         self._pending = set()
@@ -270,12 +271,16 @@ class MainWindow(QMainWindow):
         m.addAction(self.a_help)
 
         tb = self.addToolBar("main")
+        self.toolbar = tb
         tb.setMovable(False)
+        tb.setIconSize(QSize(18, 18))
         tb.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         tb.addAction(self.a_open)
         tb.addAction(self.a_save)
         tb.addSeparator()
-        tb.addWidget(ThemedLabel(" UI 파일 "))
+        ui_lab = ThemedLabel("<span style='color:#888'>UI 파일</span>")
+        ui_lab.setContentsMargins(6, 0, 4, 0)
+        tb.addWidget(ui_lab)
         self.ui_combo = QComboBox()
         self.ui_combo.setMinimumWidth(160)
         self.ui_combo.setToolTip("이 파이썬 파일이 쓰는 .ui (자동으로 찾아요). 여러 개면 여기서 바꿔요")
@@ -366,7 +371,8 @@ class MainWindow(QMainWindow):
         left = QSplitter(Qt.Vertical)
         self.preview_box = _titled("미리보기", self.preview)
         left.addWidget(self.preview_box)
-        left.addWidget(_titled("위젯 트리", self.tree))
+        self.tree_box = _titled("위젯 트리", self.tree)
+        left.addWidget(self.tree_box)
         left.setSizes([480, 300])
         self.editor_box = _titled("Main.py", self.editor)
         self.legend = ThemedLabel(LEGEND)
@@ -388,6 +394,7 @@ class MainWindow(QMainWindow):
         self.editor_box.layout().addWidget(self.findbar)
         self.editor_box.layout().addWidget(self.legend)
         right = QSplitter(Qt.Vertical)
+        self.right_split = right
         right.addWidget(_titled("선택한 위젯", self.panel))
         right.addWidget(_titled("해설", self.explain_tabs))
         right.setSizes([340, 480])
@@ -481,7 +488,8 @@ class MainWindow(QMainWindow):
         box.addWidget(sub)
         box.addSpacing(18)
         btn = QPushButton("  파일 열기  (Ctrl+O)")
-        btn.setIcon(self.style().standardIcon(QStyle.SP_DialogOpenButton))
+        btn.setIcon(icons.icon("open", "#ffffff"))
+        btn.setIconSize(QSize(20, 20))
         btn.setObjectName("bigButton")
         btn.clicked.connect(self.open_dialog)
         box.addWidget(btn)
@@ -768,26 +776,21 @@ class MainWindow(QMainWindow):
                      "(Designer에서 이 파일을 열어 두었다면 Designer에서 다시 열어 주세요)", 12000)
         QTimer.singleShot(0, lambda: self.load_ui(self.ui_path))
 
-    def _tint_icons(self):
-        """The built-in play/stop icons are black: lighten them in the dark theme so they stay visible."""
-        st = self.style()
-        for act, sp in ((self.a_run, QStyle.SP_MediaPlay), (self.a_stop, QStyle.SP_MediaStop)):
-            icon = st.standardIcon(sp)
-            if self._dark:
-                pm = icon.pixmap(32, 32)
-                p = QPainter(pm)
-                p.setCompositionMode(QPainter.CompositionMode_SourceIn)
-                p.fillRect(pm.rect(), QColor("#e6e6e6"))
-                p.end()
-                dis = icon.pixmap(32, 32, QIcon.Disabled)
-                p = QPainter(dis)
-                p.setCompositionMode(QPainter.CompositionMode_SourceIn)
-                p.fillRect(dis.rect(), QColor("#6a6f76"))
-                p.end()
-                icon = QIcon()
-                icon.addPixmap(pm, QIcon.Normal)
-                icon.addPixmap(dis, QIcon.Disabled)
-            act.setIcon(icon)
+    def _apply_icons(self):
+        """One matching set of line icons, in the theme's colours (run green, stop red, AI accent)."""
+        t = theme.T
+        for act, name, color in ((self.a_open, "open", None), (self.a_save, "save", None),
+                                 (self.a_designer, "designer", None), (self.a_run, "run", t["run"]),
+                                 (self.a_stop, "stop", t["stop"]), (self.a_explain, "ai", t["accent"]),
+                                 (self.a_challenge, "challenge", None), (self.a_help, "help", None),
+                                 (self.a_find, "find", None), (self.a_study, "folders", None)):
+            act.setIcon(icons.icon(name, color))
+        self.explorer.set_icons(icons.icon("folders"), icons.icon("refresh"))
+
+    def _chrome(self):
+        """The app look for our own panels (never for an ancestor of the .ui preview, see theme.py)."""
+        theme.chrome(self.menuBar(), self.toolbar, self.statusBar(), self.explorer, self.tips, self.editor_box,
+                     self.tree_box, self.right_split, self.bottom, self.stack.widget(0))
 
     def _light_preview(self):
         """The .ui preview keeps the light look it was designed with, also in the dark theme."""
@@ -798,7 +801,7 @@ class MainWindow(QMainWindow):
         self.settings.setValue("view/dark", self._dark)
         theme.apply(QApplication.instance(), self._dark)
         self._light_preview()
-        self._tint_icons()
+        self._apply_icons()
         self.editor.apply_theme()
         self.run_check()                       # re-colours the dimmed (unused) widget names
         theme.retheme_all(self)                # labels, dialogs-in-window, browsers

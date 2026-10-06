@@ -81,6 +81,7 @@ class PreviewPane(QScrollArea):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWidgetResizable(True)
+        self.setFrameShape(QScrollArea.NoFrame)
         self.host = QWidget()
         self.host.setObjectName("__preview_host")
         self._lay = QVBoxLayout(self.host)

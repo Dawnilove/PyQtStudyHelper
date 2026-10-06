@@ -4,12 +4,13 @@ from PyQt5.QtWidgets import (QDialog, QDialogButtonBox, QLabel, QLineEdit, QPlai
                              QVBoxLayout)
 
 from . import codegen
-from .theme import ThemedLabel
+from .theme import ThemedLabel, chrome
 
 
 class SignalInsertDialog(QDialog):
     def __init__(self, src, widget, sig, all_sigs, parent=None, target_class=None):
         super().__init__(parent)
+        chrome(self)                           # the app look for this dialog
         self.src, self.widget, self.sig, self.all_sigs = src, widget, sig, all_sigs
         self.target_class = target_class
         self.plan = None

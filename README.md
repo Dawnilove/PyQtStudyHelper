@@ -110,7 +110,8 @@ studyhelper/
   codegen.py, signaldialog.py  시그널 연결 코드 만들기
   renamedialog.py       objectName 바꾸기
   challenge.py          도전 모드
-  theme.py              밝은/어두운 테마 색
+  theme.py              밝은/어두운 테마 색, 화면 스타일 (미리보기는 Designer 모습 그대로)
+  icons.py              툴바 아이콘 (그림 파일 없이 직접 그림)
   findbar.py            찾기·바꾸기 막대
   recovery.py           저장 안 한 코드 임시 백업
   explorer.py           왼쪽 탐색기 (학습 폴더 트리 / 최근 파일)

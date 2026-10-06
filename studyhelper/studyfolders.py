@@ -8,7 +8,7 @@ from PyQt5.QtCore import QDir, QObject, QStandardPaths, Qt, QUrl, pyqtSignal
 from PyQt5.QtWidgets import (QDialog, QDialogButtonBox, QFileDialog, QHBoxLayout, QLabel, QListWidget,
                              QListWidgetItem, QPushButton, QVBoxLayout)
 
-from .theme import ThemedLabel
+from .theme import ThemedLabel, chrome
 
 KEY = "studyFolders"                 # QSettings key holding the list of folder paths
 MAIN_NAME = "main.py"                # compared in lower case, like locate.main_py_in does
@@ -166,6 +166,7 @@ class MainFilesScanner(QObject):
 class StudyFoldersDialog(QDialog):
     def __init__(self, folders, parent=None):
         super().__init__(parent)
+        chrome(self)                           # the app look for this dialog
         self.setWindowTitle("학습 폴더 관리")
         self.resize(560, 320)
         self._folders = list(folders)

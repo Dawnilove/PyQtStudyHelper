@@ -8,7 +8,7 @@ from PyQt5.QtWidgets import (QDialog, QHBoxLayout, QLabel, QListWidget, QListWid
 
 from .preview import PreviewPane
 from .ui_model import UiModel
-from .theme import ThemedLabel
+from .theme import ThemedLabel, chrome
 
 SKIP = {"QWidget", "QMenuBar", "QStatusBar"}          # always generated / plumbing
 TEXT_PROPS = ("text", "title", "windowTitle", "placeholderText")
@@ -123,6 +123,7 @@ class ChallengeWindow(QDialog):
         ll.addWidget(self.preview, 1)
         sp.addWidget(left)
         right = QWidget()
+        chrome(right)                            # not the whole window: the target preview keeps the Designer look
         rl = QVBoxLayout(right)
         rl.setContentsMargins(0, 0, 0, 0)
         self.mine_label = ThemedLabel()
@@ -134,6 +135,7 @@ class ChallengeWindow(QDialog):
         rl.addWidget(self.checks, 1)
         row = QHBoxLayout()
         b_new = QPushButton("빈 .ui 만들어서 시작 (Designer로 열기)")
+        b_new.setObjectName("primary")
         b_new.clicked.connect(self._new_ui)
         row.addWidget(b_new)
         row.addStretch(1)

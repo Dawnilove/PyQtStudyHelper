@@ -1,5 +1,14 @@
-"""밝은 / 어두운 테마. One place for every colour the app picks itself (the rest follows the Qt palette)."""
+"""밝은 / 어두운 테마. One place for every colour the app picks itself (the rest follows the Qt palette).
+
+Two style sheets:
+- app_stylesheet(): set on the whole app. Only rules that can't touch the student's .ui preview
+  (our own objectNames, menus, tooltips, splitter handles).
+- chrome_stylesheet(): the look of buttons, inputs, tabs, lists, scroll bars … It is set only on the parts
+  of the window that are ours (chrome(widget)), never on an ancestor of a .ui preview — so the preview
+  keeps looking exactly like Qt Designer shows it.
+"""
 import re
+import weakref
 
 from PyQt5.QtGui import QColor, QPalette
 from PyQt5.QtWidgets import QLabel, QTextBrowser
@@ -19,30 +28,35 @@ LIGHT = {
     # code editor
     "kw": "#0033b3", "self": "#94558d", "str": "#067d17", "comment": "#8c8c8c", "num": "#1750eb",
     "widget": "#0b6bcb",
-    "cur_line": "#eaf2ff", "flash": "#d3f9d8", "err_line": "#ffd9d9", "mark_line": "#fff4c2", "mark_word": "#ffd666",
-    "gutter_bg": "#f3f3f3", "gutter_fg": "#999999", "gutter_mark": "#b8860b",
+    "cur_line": "#eef4ff", "flash": "#d3f9d8", "err_line": "#ffe0e0", "mark_line": "#fff4c2", "mark_word": "#ffd666",
+    "gutter_bg": "#ffffff", "gutter_fg": "#a3a9b1", "gutter_mark": "#b8860b",
     # side panels / html
-    "pre_bg": "#f4f4f4", "muted": "#888888", "text": "#202020", "unused": "#a0a0a0", "readonly_cell": "#f2f2f2",
-    # stylesheet
-    "title_bg": "#eef2f8", "title_fg": "#1f3a5f", "title_border": "#d3dce9",
-    "bar_bg": "#f7f8fa", "bar_border": "#dde3ea", "tips_bg": "#fff8e1", "tips_border": "#f0dca0",
-    "hover_bg": "#e6eefb", "hover_border": "#c4d4ee", "handle": "#e3e8ef", "handle_hover": "#9db8e6",
-    "status": "#555555", "welcome_bg": "#fafbfd", "disabled": "#aaaaaa",
+    "pre_bg": "#f3f5f8", "muted": "#6a737d", "text": "#1f2328", "unused": "#a0a6ad", "readonly_cell": "#f3f5f8",
+    # surfaces
+    "window": "#f3f4f6", "base": "#ffffff", "border": "#e1e4e8", "border_strong": "#d0d7de",
+    "accent": "#2f6fd0", "accent_hover": "#255db3", "accent_soft": "#dce8fb", "on_accent": "#ffffff",
+    "hover": "#e9edf2", "button": "#ffffff", "disabled": "#a0a6ad",
+    "scroll": "#c9ced6", "scroll_hover": "#a9b0ba",
+    "title_fg": "#57606a", "tips_bg": "#fff8e1", "tips_border": "#f0dca0",
+    "icon": "#3b4249", "run": "#2f9e44", "stop": "#e03131",
 }
 DARK = {
     "kw": "#6fa8ff", "self": "#c792ea", "str": "#8bc98b", "comment": "#7a8088", "num": "#82aaff",
     "widget": "#4da3ff",
-    "cur_line": "#2a3a52", "flash": "#1f4a2a", "err_line": "#5a2a2a", "mark_line": "#4a4220", "mark_word": "#8a6d1a",
-    "gutter_bg": "#2b2d30", "gutter_fg": "#7d8590", "gutter_mark": "#e0b341",
-    "pre_bg": "#2f3238", "muted": "#9aa0a8", "text": "#e6e6e6", "unused": "#6f757d", "readonly_cell": "#33363b",
-    "title_bg": "#2a2f38", "title_fg": "#c9d8f0", "title_border": "#3b4350",
-    "bar_bg": "#272a2f", "bar_border": "#3a3f47", "tips_bg": "#3a3520", "tips_border": "#5a5030",
-    "hover_bg": "#33415a", "hover_border": "#4a5f85", "handle": "#353a42", "handle_hover": "#5b7ab5",
-    "status": "#b0b6be", "welcome_bg": "#212326", "disabled": "#6a6f76",
+    "cur_line": "#232f40", "flash": "#1f4a2a", "err_line": "#4a2326", "mark_line": "#4a4220", "mark_word": "#8a6d1a",
+    "gutter_bg": "#181a1d", "gutter_fg": "#5f666e", "gutter_mark": "#e0b341",
+    "pre_bg": "#24272b", "muted": "#9aa0a8", "text": "#e6e6e6", "unused": "#6f757d", "readonly_cell": "#24272b",
+    "window": "#1f2124", "base": "#181a1d", "border": "#30343a", "border_strong": "#40454d",
+    "accent": "#4d8fe6", "accent_hover": "#6aa2ec", "accent_soft": "#24395a", "on_accent": "#ffffff",
+    "hover": "#2a2e34", "button": "#26292e", "disabled": "#6a6f76",
+    "scroll": "#3d424a", "scroll_hover": "#555b64",
+    "title_fg": "#9aa0a8", "tips_bg": "#33301f", "tips_border": "#4d4628",
+    "icon": "#d5d9de", "run": "#51cf66", "stop": "#ff6b6b",
 }
 
 T = dict(LIGHT)          # the colours in use right now
 dark = False
+_chromed = []            # weakrefs of widgets that carry chrome_stylesheet()
 
 
 def set_dark(on: bool):
@@ -106,26 +120,30 @@ def retheme_all(root):
 
 
 def palette(on: bool) -> QPalette:
-    p = QPalette()
-    if not on:
-        return p
+    t = DARK if on else LIGHT
     c = QColor
-    p.setColor(QPalette.Window, c("#232528"))
-    p.setColor(QPalette.WindowText, c("#e6e6e6"))
-    p.setColor(QPalette.Base, c("#1b1d20"))
-    p.setColor(QPalette.AlternateBase, c("#26282c"))
-    p.setColor(QPalette.ToolTipBase, c("#2f3238"))
-    p.setColor(QPalette.ToolTipText, c("#e6e6e6"))
-    p.setColor(QPalette.Text, c("#e6e6e6"))
-    p.setColor(QPalette.Button, c("#2e3136"))
-    p.setColor(QPalette.ButtonText, c("#e6e6e6"))
+    p = QPalette()
+    p.setColor(QPalette.Window, c(t["window"]))
+    p.setColor(QPalette.WindowText, c(t["text"]))
+    p.setColor(QPalette.Base, c(t["base"]))
+    p.setColor(QPalette.AlternateBase, c(t["pre_bg"]))
+    p.setColor(QPalette.ToolTipBase, c(t["base"]))
+    p.setColor(QPalette.ToolTipText, c(t["text"]))
+    p.setColor(QPalette.Text, c(t["text"]))
+    p.setColor(QPalette.Button, c(t["button"]))
+    p.setColor(QPalette.ButtonText, c(t["text"]))
     p.setColor(QPalette.BrightText, c("#ff6b6b"))
-    p.setColor(QPalette.Link, c("#6fb3ff"))
-    p.setColor(QPalette.Highlight, c("#2f6fd0"))
+    p.setColor(QPalette.Link, c(t["accent"]))
+    p.setColor(QPalette.Highlight, c(t["accent"]))
     p.setColor(QPalette.HighlightedText, c("#ffffff"))
-    p.setColor(QPalette.PlaceholderText, c("#7d8590"))
+    p.setColor(QPalette.PlaceholderText, c(t["disabled"]))
+    p.setColor(QPalette.Light, c(t["base"]))
+    p.setColor(QPalette.Midlight, c(t["border"]))
+    p.setColor(QPalette.Mid, c(t["border_strong"]))
+    p.setColor(QPalette.Dark, c(t["border_strong"]))
+    p.setColor(QPalette.Shadow, c("#000000"))
     for role in (QPalette.WindowText, QPalette.Text, QPalette.ButtonText):
-        p.setColor(QPalette.Disabled, role, c("#6a6f76"))
+        p.setColor(QPalette.Disabled, role, c(t["disabled"]))
     return p
 
 
@@ -145,39 +163,136 @@ def light_palette() -> QPalette:
     return p
 
 
-def stylesheet() -> str:
-    t = T
+def _id_rules(t) -> str:
+    """Rules keyed on our own objectNames (safe anywhere; repeated in the chrome sheet so they win there)."""
     return f"""
-QLabel#paneTitle {{ background: {t['title_bg']}; color: {t['title_fg']}; border-bottom: 1px solid {t['title_border']}; padding: 1px 4px; }}
-QPushButton#bigButton {{ font-size: 12pt; padding: 10px 18px; background: #2f6fd0; color: white;
-                        border: none; border-radius: 6px; }}
-QPushButton#bigButton:hover {{ background: #255db3; }}
-QWidget#welcome {{ background: {t['welcome_bg']}; }}
-QToolBar {{ spacing: 4px; padding: 3px; border-bottom: 1px solid {t['bar_border']}; }}
-QToolButton {{ padding: 4px 8px; border: 1px solid transparent; border-radius: 4px; }}
-QToolButton:hover {{ background: {t['hover_bg']}; border-color: {t['hover_border']}; }}
-QToolButton:disabled {{ color: {t['disabled']}; }}
-QSplitter::handle {{ background: {t['handle']}; }}
-QSplitter::handle:hover {{ background: {t['handle_hover']}; }}
-QSplitter::handle:horizontal {{ width: 3px; }}
-QSplitter::handle:vertical {{ height: 3px; }}
-QLabel#explorerTitle {{ padding-left: 2px; }}
-QLabel#explorerHint {{ font-size: 9pt; }}
-QPushButton:flat {{ border: none; padding: 3px 5px; border-radius: 4px; }}
-QPushButton:flat:hover {{ background: {t['hover_bg']}; }}
-QTabWidget::pane {{ border: 1px solid {t['title_border']}; top: -1px; }}
-QTabBar::tab:selected {{ font-weight: bold; }}
-QTabBar::tab {{ padding: 5px 14px; }}
-QTabBar#fileTabs::tab {{ padding: 4px 12px; min-width: 80px; font-weight: normal; }}
-QTabBar#fileTabs::tab:selected {{ font-weight: bold; }}
-QStatusBar QLabel {{ color: {t['status']}; padding: 0 6px; }}
+QLabel#paneTitle {{ background: {t['window']}; color: {t['title_fg']}; border-bottom: 1px solid {t['border']};
+                    padding: 5px 10px; font-size: 9pt; }}
+QPushButton#bigButton {{ font-size: 12pt; padding: 10px 22px; background: {t['accent']}; color: {t['on_accent']};
+                        border: none; border-radius: 8px; }}
+QPushButton#bigButton:hover {{ background: {t['accent_hover']}; }}
+QPushButton#primary {{ background: {t['accent']}; color: {t['on_accent']}; border: none; border-radius: 6px;
+                      padding: 5px 12px; }}
+QPushButton#primary:hover {{ background: {t['accent_hover']}; }}
+QWidget#welcome {{ background: {t['window']}; }}
 QWidget#tips {{ background: {t['tips_bg']}; border-bottom: 1px solid {t['tips_border']}; }}
-QWidget#findBar {{ background: {t['bar_bg']}; border-top: 1px solid {t['bar_border']}; }}
-QLabel#legend {{ background: {t['bar_bg']}; border-top: 1px solid {t['bar_border']}; padding: 3px 6px; font-size: 9pt; }}
+QWidget#findBar {{ background: {t['window']}; border-top: 1px solid {t['border']}; }}
+QLabel#legend {{ background: {t['window']}; border-top: 1px solid {t['border']}; padding: 4px 10px; font-size: 9pt; }}
+QLabel#explorerTitle {{ padding-left: 4px; color: {t['title_fg']}; font-size: 9pt; }}
+QLabel#explorerHint {{ font-size: 9pt; color: {t['muted']}; }}
+QWidget#explorerPanel {{ background: {t['base']}; }}
+QTabBar#fileTabs {{ background: {t['window']}; }}
+QTabBar#fileTabs::tab {{ background: {t['window']}; color: {t['muted']}; border: none;
+                        border-right: 1px solid {t['border']}; border-top: 2px solid transparent;
+                        padding: 5px 8px 5px 12px; min-width: 70px; font-weight: normal; }}
+QTabBar#fileTabs::tab:selected {{ background: {t['base']}; color: {t['text']}; border-top: 2px solid {t['accent']}; }}
+QTabBar#fileTabs::tab:hover:!selected {{ color: {t['text']}; }}
 """
+
+
+def app_stylesheet() -> str:
+    t = T
+    return _id_rules(t) + f"""
+QSplitter::handle {{ background: {t['border']}; }}
+QSplitter::handle:hover {{ background: {t['accent']}; }}
+QSplitter::handle:horizontal {{ width: 1px; }}
+QSplitter::handle:vertical {{ height: 1px; }}
+QMainWindow::separator {{ background: {t['border']}; width: 1px; height: 1px; }}
+QMenu {{ background: {t['base']}; color: {t['text']}; border: 1px solid {t['border_strong']}; padding: 4px; }}
+QMenu::item {{ padding: 5px 28px 5px 24px; border-radius: 4px; }}
+QMenu::item:selected {{ background: {t['accent_soft']}; color: {t['text']}; }}
+QMenu::item:disabled {{ color: {t['disabled']}; }}
+QMenu::separator {{ height: 1px; background: {t['border']}; margin: 4px 8px; }}
+QToolTip {{ background: {t['base']}; color: {t['text']}; border: 1px solid {t['border_strong']}; padding: 4px 6px; }}
+"""
+
+
+def chrome_stylesheet() -> str:
+    t = T
+    return _id_rules(t) + f"""
+QToolBar {{ background: {t['window']}; border: none; border-bottom: 1px solid {t['border']}; spacing: 2px; padding: 4px 6px; }}
+QToolBar::separator {{ background: {t['border']}; width: 1px; margin: 6px 6px; }}
+QToolButton {{ background: transparent; color: {t['text']}; border: 1px solid transparent; border-radius: 6px; padding: 4px 8px; }}
+QToolButton:hover {{ background: {t['hover']}; }}
+QToolButton:pressed, QToolButton:checked {{ background: {t['accent_soft']}; }}
+QToolButton:disabled {{ color: {t['disabled']}; }}
+QMenuBar {{ background: {t['window']}; color: {t['text']}; border-bottom: 1px solid {t['border']}; padding: 2px 4px; }}
+QMenuBar::item {{ background: transparent; padding: 4px 10px; border-radius: 4px; }}
+QMenuBar::item:selected {{ background: {t['hover']}; }}
+QStatusBar {{ background: {t['window']}; color: {t['muted']}; border-top: 1px solid {t['border']}; }}
+QStatusBar QLabel {{ color: {t['muted']}; padding: 0 8px; }}
+
+QPushButton {{ background: {t['button']}; color: {t['text']}; border: 1px solid {t['border_strong']};
+               border-radius: 6px; padding: 5px 12px; }}
+QPushButton:hover {{ background: {t['hover']}; }}
+QPushButton:pressed {{ background: {t['accent_soft']}; }}
+QPushButton:default {{ border-color: {t['accent']}; }}
+QPushButton:disabled {{ color: {t['disabled']}; background: {t['window']}; border-color: {t['border']}; }}
+QPushButton:flat {{ background: transparent; border: none; padding: 3px 6px; border-radius: 5px; }}
+QPushButton:flat:hover {{ background: {t['hover']}; }}
+
+QLineEdit, QComboBox {{ background: {t['base']}; color: {t['text']}; border: 1px solid {t['border_strong']};
+                        border-radius: 5px; padding: 4px 6px; selection-background-color: {t['accent']}; }}
+QLineEdit:focus, QComboBox:focus {{ border-color: {t['accent']}; }}
+QLineEdit:disabled {{ background: {t['window']}; color: {t['disabled']}; border-color: {t['border']}; }}
+QComboBox QAbstractItemView {{ background: {t['base']}; border: 1px solid {t['border_strong']};
+                               selection-background-color: {t['accent_soft']}; selection-color: {t['text']}; }}
+
+QPlainTextEdit, QTextEdit, QTextBrowser {{ background: {t['base']}; color: {t['text']}; border: none;
+                                           selection-background-color: {t['accent']}; selection-color: #ffffff; }}
+QTreeView, QListView, QTableView, QTreeWidget, QListWidget, QTableWidget {{
+    background: {t['base']}; color: {t['text']}; border: none; outline: 0;
+    selection-background-color: {t['accent_soft']}; selection-color: {t['text']}; }}
+QTreeView::item, QListView::item {{ padding: 2px 2px; }}
+QTreeView::item:hover, QListView::item:hover {{ background: {t['hover']}; }}
+QTreeView::item:selected, QListView::item:selected {{ background: {t['accent_soft']}; color: {t['text']}; }}
+QTableView {{ gridline-color: {t['border']}; }}
+QHeaderView::section {{ background: {t['window']}; color: {t['muted']}; border: none;
+                        border-bottom: 1px solid {t['border']}; border-right: 1px solid {t['border']}; padding: 4px 6px; }}
+
+QTabWidget::pane {{ border: none; border-top: 1px solid {t['border']}; top: -1px; background: {t['base']}; }}
+QTabBar::tab {{ background: transparent; color: {t['muted']}; border: none; border-bottom: 2px solid transparent;
+                padding: 6px 12px; margin-right: 2px; }}
+QTabBar::tab:hover {{ color: {t['text']}; }}
+QTabBar::tab:selected {{ color: {t['text']}; border-bottom: 2px solid {t['accent']}; font-weight: bold; }}
+
+QScrollBar:vertical {{ background: transparent; width: 10px; margin: 0; }}
+QScrollBar:horizontal {{ background: transparent; height: 10px; margin: 0; }}
+QScrollBar::handle:vertical {{ background: {t['scroll']}; border-radius: 3px; min-height: 28px; margin: 2px; }}
+QScrollBar::handle:horizontal {{ background: {t['scroll']}; border-radius: 3px; min-width: 28px; margin: 2px; }}
+QScrollBar::handle:hover {{ background: {t['scroll_hover']}; }}
+QScrollBar::add-line, QScrollBar::sub-line {{ width: 0; height: 0; }}
+QScrollBar::add-page, QScrollBar::sub-page {{ background: transparent; }}
+
+QProgressBar {{ background: {t['base']}; border: 1px solid {t['border_strong']}; border-radius: 6px;
+                text-align: center; min-height: 16px; }}
+QProgressBar::chunk {{ background: {t['accent']}; border-radius: 5px; }}
+QCheckBox {{ spacing: 6px; }}
+"""
+
+
+def chrome(*widgets):
+    """Give our own panels / dialogs the app look (and keep it in step with theme switches)."""
+    sheet = chrome_stylesheet()
+    for w in widgets:
+        if w is None:
+            continue
+        w.setStyleSheet(sheet)
+        _chromed.append(weakref.ref(w))
 
 
 def apply(app, on: bool):
     set_dark(on)
     app.setPalette(palette(on))
-    app.setStyleSheet(stylesheet())
+    app.setStyleSheet(app_stylesheet())
+    sheet = chrome_stylesheet()
+    alive = []
+    for ref in _chromed:
+        w = ref()
+        try:
+            if w is not None:
+                w.setStyleSheet(sheet)
+                alive.append(ref)
+        except RuntimeError:                     # the C++ widget is gone
+            pass
+    _chromed[:] = alive

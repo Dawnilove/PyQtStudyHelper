@@ -12,7 +12,7 @@ from PyQt5.QtWidgets import (QApplication, QDialog, QHBoxLayout, QLabel, QLineEd
                              QVBoxLayout)
 
 from . import ai
-from .theme import ThemedLabel
+from .theme import ThemedLabel, chrome
 
 GEMINI_KEY = re.compile(r"AIza[0-9A-Za-z_\-]{35}")
 FREE_MODEL = "gemini-3.8-flash"
@@ -30,6 +30,7 @@ def find_key(text: str) -> str | None:
 class FreeAiDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
+        chrome(self)                           # the app look for this dialog
         self.setWindowTitle("무료 AI 켜기 (Gemini)")
         self.setMinimumWidth(560)
         self.done_ok = False
@@ -45,6 +46,7 @@ class FreeAiDialog(QDialog):
         lay.addWidget(self._label(
             "<b>1.</b> 아래 버튼을 눌러 구글 페이지를 열어요 (구글 로그인이 필요할 수 있어요)."))
         b_open = QPushButton("키 발급 페이지 열기")
+        b_open.setObjectName("primary")
         b_open.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(KEY_PAGE)))
         lay.addWidget(b_open)
         lay.addWidget(self._label(

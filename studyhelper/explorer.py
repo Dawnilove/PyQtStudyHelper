@@ -79,6 +79,8 @@ class ExplorerPanel(QWidget):
         self.title = ThemedLabel()
         self.title.setObjectName("explorerTitle")
         head.addWidget(self.title, 1)
+        self.setObjectName("explorerPanel")
+        self.setAttribute(Qt.WA_StyledBackground, True)
         self.b_manage = QPushButton()
         self.b_manage.setIcon(self.style().standardIcon(QStyle.SP_DirOpenIcon))
         self.b_manage.setToolTip("학습 폴더 추가·삭제 (폴더 관리)")
@@ -107,6 +109,10 @@ class ExplorerPanel(QWidget):
         self.hint.setObjectName("explorerHint")
         self.hint.setMargin(6)
         lay.addWidget(self.hint)
+
+    def set_icons(self, manage, refresh):
+        self.b_manage.setIcon(manage)
+        self.b_refresh.setIcon(refresh)
 
     # ------------------------------------------------------------------ data
     def set_data(self, folders, recent, current=""):
