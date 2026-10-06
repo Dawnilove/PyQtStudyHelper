@@ -183,12 +183,3 @@ def plan_insert(src: str, widget: str, sig: str, all_sigs: list[str], slot: str,
                 f"{body_indent}    # {what}{doc_args}\n"
                 f"{body_indent}    print('{slot}'{''.join(', ' + p for p in params)})  # TODO: 할 일을 여기에\n")
     return Plan(connect, anchor, stub, cls_end, note=note)
-
-
-def apply_plan(src: str, plan: Plan) -> str:
-    """Text-only application (the editor applies the same plan through QTextCursor for undo)."""
-    lines = src.split("\n")
-    if plan.stub:
-        lines[plan.stub_after + 1:plan.stub_after + 1] = plan.stub.rstrip("\n").split("\n")
-    lines.insert(plan.connect_after + 1, plan.connect_line)
-    return "\n".join(lines)

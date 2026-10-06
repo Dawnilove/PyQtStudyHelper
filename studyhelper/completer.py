@@ -80,10 +80,6 @@ class Completer:
                 pass
         self.widgets: dict[str, str] = {}          # .ui object name -> Qt class name
 
-    @property
-    def has_jedi(self) -> bool:
-        return self._jedi is not None
-
     def set_widgets(self, widgets: dict[str, str]):
         self.widgets = dict(widgets)               # swapped as a whole: safe to read from another thread
 

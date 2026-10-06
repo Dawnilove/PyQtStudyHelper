@@ -3,3 +3,13 @@ __pycache__/
 .venv/
 error.log
 *.lnk
+.pytest_cache/
+build/
+dist/
+*.egg-info/
+*.spec
+.vscode/
+.idea/
+.claude/
+Thumbs.db
+desktop.ini

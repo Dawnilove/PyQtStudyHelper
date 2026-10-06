@@ -229,6 +229,7 @@ def grade(task_id: str, main_path: str) -> dict:
 
 def main():
     out = sys.__stdout__
+    out.reconfigure(encoding="utf-8")           # the answer is UTF-8 JSON, whatever the console code page is
     result_file = sys.argv[3] if len(sys.argv) == 4 else None
     if len(sys.argv) not in (3, 4) or sys.argv[1] not in BY_ID:
         result = {"fatal": "사용법: grader.py <과제 id> <Main.py> [result.json]", "results": []}
